@@ -5,6 +5,18 @@ defmodule Sofa do
   > If the only tool you have is CouchDB, then
   > everything looks like {:ok, :relax}
 
+  ## Examples
+
+  iex> Sofa.init() |> Sofa.client() |> Sofa.connect!()
+  %{
+    "couchdb" => "Welcome",
+    "features" => ["access-ready", "partitioned", "pluggable-storage-engines",
+      "reshard", "scheduler"],
+    "git_sha" => "ce596c65d",
+    "uuid" => "59c032d3a6adcd5b44315137a124bf69",
+    "vendor" => %{"name" => "FreeBSD"},
+    "version" => "3.1.1"
+  }
   """
 
   @derive {Inspect, except: [:auth]}
@@ -38,26 +50,29 @@ defmodule Sofa do
   containing the usual CouchDB server properties. The URI may be given
   as a string or as a %URI struct.
 
+  This should be piped into Sofa.client/1 to create the HTTP client,
+  which is stored inside the struct with correct authentication information.
+
   ## Examples
 
-      iex> Sofa.init("https://very:Secure@foreignho.st:6984/")
-      %Sofa{
-        auth: "very:Secure",
-        features: nil,
-        uri: %URI{
-          authority: "very:Secure@foreignho.st:6984",
-          fragment: nil,
-          host: "foreignho.st",
-          path: "/",
-          port: 6984,
-          query: nil,
-          scheme: "https",
-          userinfo: "very:Secure"
-        },
-        uuid: nil,
-        vendor: nil,
-        version: nil
-      }
+  iex> Sofa.init("https://very:Secure@foreignho.st:6984/")
+  %Sofa{
+    auth: "very:Secure",
+    features: nil,
+    uri: %URI{
+      authority: "very:Secure@foreignho.st:6984",
+      fragment: nil,
+      host: "foreignho.st",
+      path: "/",
+      port: 6984,
+      query: nil,
+      scheme: "https",
+      userinfo: "very:Secure"
+    },
+    uuid: nil,
+    vendor: nil,
+    version: nil
+  }
 
   """
   @spec init(uri :: String.t() | %URI{}) :: %Sofa{}
@@ -94,22 +109,81 @@ defmodule Sofa do
   BasicAuth user:password combination.
   ## Examples
 
-      iex> Sofa.auth_info("admin:password")
-      %{username: "admin", password: "password"}
+  iex> Sofa.auth_info("admin:password")
+  %{username: "admin", password: "password"}
 
-      iex> Sofa.auth_info("blank:")
-      %{username: "blank", password: ""}
+  iex> Sofa.auth_info("blank:")
+  %{username: "blank", password: ""}
 
-      iex> Sofa.auth_info("garbage")
-      %{}
+  iex> Sofa.auth_info("garbage")
+  %{}
   """
-  @spec auth_info(String.t()) :: %{} | %{user: String.t(), password: String.t()}
+  @spec auth_info(nil | String.t()) :: %{} | %{user: String.t(), password: String.t()}
+  def auth_info(nil), do: %{}
+
   def auth_info(info) when is_binary(info) do
     case String.split(info, ":", parts: 2) do
       [""] -> %{}
       ["", _] -> %{}
       [user, password] -> %{username: user, password: password}
       _ -> %{}
+    end
+  end
+
+  @doc """
+  Given an existing %Sofa{} struct, or a prepared URI, attempts to connect
+  to the CouchDB instance, and returns an updated %Sofa{} to use in future
+  connections to this server, using the same HTTP credentials.
+
+  Returns an updated `{:ok, %Sofa{}}` on success, or `{:error, reason}`, if
+  for example, the URL is unreachable, times out, supplied credentials are
+  rejected by CouchDB, or returns unexpected HTTP status codes.
+  """
+  @spec connect(String.t() | %Sofa{}) :: {:ok, %Sofa{}} | {:error, any()}
+  def connect(sofa) when is_binary(sofa) do
+    init(sofa) |> client() |> connect()
+  end
+
+  def connect(couch = %Sofa{}) do
+    case result = Tesla.get(couch.client, "/") do
+      {:error, _} ->
+        result
+
+      {:ok, resp = %{body: %{"error" => _error, "reason" => _reason}}} ->
+        {:error, resp}
+
+      {:ok, resp} ->
+        {:ok,
+         %Sofa{
+           couch
+           | features: resp.body["features"],
+             uuid: resp.body["uuid"],
+             vendor: resp.body["vendor"],
+             version: resp.body["version"]
+         }}
+    end
+  end
+
+  @doc """
+  Bang! wrapper around Sofa.connect/1; raises exceptions on error.
+  """
+  @spec connect!(String.t() | %Sofa{}) :: %Sofa{}
+  def connect!(sofa) when is_binary(sofa) do
+    init(sofa) |> client() |> connect!()
+  end
+
+  def connect!(sofa = %Sofa{}) when is_map(sofa) do
+    url = sofa.uri.host <> ":" <> to_string(sofa.uri.port)
+
+    case connect(sofa) do
+      {:error, :econnrefused} ->
+        raise Sofa.Error, "connection refused to " <> url
+
+      {:ok, resp} ->
+        resp
+
+      _ ->
+        raise Sofa.Error, "unhandled error from " <> url
     end
   end
 end
