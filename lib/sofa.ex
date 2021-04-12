@@ -7,9 +7,12 @@ defmodule Sofa do
 
   """
 
+  @derive {Inspect, except: [:auth]}
   defstruct [
     # auth specific headers such as Bearer, Basic
     :auth,
+    # re-usable tesla HTTP client
+    :client,
     # feature response as returned from CouchDB `GET /`
     :features,
     # optional timeout for CouchDB-specific responses
@@ -23,6 +26,8 @@ defmodule Sofa do
     # CouchDB's API version
     :version
   ]
+
+  require Logger
 
   # these default credentials are also used in CouchDB integration tests
   # because CouchDB3+ no longer accepts "admin party" blank credentials
@@ -63,5 +68,48 @@ defmodule Sofa do
       auth: uri.userinfo,
       uri: uri
     }
+  end
+
+  @doc """
+  Builds Telsa runtime client, with appropriate middleware header credentials,
+  from supplied %Sofa{} struct.
+  """
+  @spec client(%Sofa{}) :: %Sofa{}
+  def client(couch = %Sofa{uri: uri}) do
+    couch_url = uri.scheme <> "://" <> uri.host <> ":#{uri.port}/"
+
+    middleware = [
+      {Tesla.Middleware.BaseUrl, couch_url},
+      Tesla.Middleware.JSON,
+      {Tesla.Middleware.BasicAuth, auth_info(uri.userinfo)}
+    ]
+
+    client = Tesla.client(middleware)
+    %Sofa{couch | client: client}
+  end
+
+  @doc """
+  Returns user & password credentials extracted from a typical %URI{} userinfo
+  field, as a Tesla-compatible authorization header. Currently only supports
+  BasicAuth user:password combination.
+  ## Examples
+
+      iex> Sofa.auth_info("admin:password")
+      %{username: "admin", password: "password"}
+
+      iex> Sofa.auth_info("blank:")
+      %{username: "blank", password: ""}
+
+      iex> Sofa.auth_info("garbage")
+      %{}
+  """
+  @spec auth_info(String.t()) :: %{} | %{user: String.t(), password: String.t()}
+  def auth_info(info) when is_binary(info) do
+    case String.split(info, ":", parts: 2) do
+      [""] -> %{}
+      ["", _] -> %{}
+      [user, password] -> %{username: user, password: password}
+      _ -> %{}
+    end
   end
 end

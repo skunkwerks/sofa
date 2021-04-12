@@ -1,9 +1,14 @@
 defmodule SofaTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
+
+  import Tesla.Mock
+
+  @sofa Sofa.init()
+
   doctest Sofa
 
   test "init returns expected struct" do
-    assert Sofa.init() == %Sofa{
+    assert @sofa == %Sofa{
              auth: "admin:passwd",
              features: nil,
              uri: %URI{

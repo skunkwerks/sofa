@@ -1,0 +1,1 @@
+  {"couchdb":"Welcome","version":"3.1.1","git_sha":"ce596c65d","uuid":"59c032d3a6adcd5b44315137a124bf69","features":["access-ready","partitioned","pluggable-storage-engines","reshard","scheduler"],"vendor":{"name":"FreeBSD"}}
