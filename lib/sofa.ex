@@ -5,6 +5,18 @@ defmodule Sofa do
   > If the only tool you have is CouchDB, then
   > everything looks like {:ok, :relax}
 
+  ## Examples
+
+      iex> Sofa.init() |> Sofa.connect!()
+      %{
+        "couchdb" => "Welcome",
+        "features" => ["access-ready", "partitioned", "pluggable-storage-engines",
+        "reshard", "scheduler"],
+        "git_sha" => "ce596c65d",
+        "uuid" => "59c032d3a6adcd5b44315137a124bf69",
+        "vendor" => %{"name" => "FreeBSD"},
+        "version" => "3.1.1"
+      }
   """
 
   @derive {Inspect, except: [:auth]}
@@ -37,6 +49,9 @@ defmodule Sofa do
   Takes an optional parameter, the CouchDB uri, and returns a struct
   containing the usual CouchDB server properties. The URI may be given
   as a string or as a %URI struct.
+
+  This should be piped into Sofa.client/1 to create the HTTP client,
+  which is stored inside the struct with correct authentication information.
 
   ## Examples
 
@@ -103,13 +118,66 @@ defmodule Sofa do
       iex> Sofa.auth_info("garbage")
       %{}
   """
-  @spec auth_info(String.t()) :: %{} | %{user: String.t(), password: String.t()}
+  @spec auth_info(nil | String.t()) :: %{} | %{user: String.t(), password: String.t()}
+  def auth_info(nil), do: %{}
+
   def auth_info(info) when is_binary(info) do
     case String.split(info, ":", parts: 2) do
       [""] -> %{}
       ["", _] -> %{}
       [user, password] -> %{username: user, password: password}
       _ -> %{}
+    end
+  end
+
+  @doc """
+  Given an existing %Sofa{} struct containing a prepared URI, attempts
+  to connect to the CouchDB instance, and returns an updated %Sofa{} to
+  use in future connections to this server.
+
+  Returns an updated `{:ok, %Sofa{}}` on success, or `{:error, reason}`, if
+  for example, the URL is unreachable, times out, supplied credentials are
+  rejected by CouchDB, or returns unexpected HTTP status codes.
+  """
+  @spec connect(%Sofa{}) :: {:ok, %Sofa{}} | {:error, any()}
+  def connect(couch = %Sofa{}) do
+    case result = Tesla.get(couch.client, "/") do
+      {:error, _} ->
+        result
+
+      {:ok, resp = %{body: %{"error" => _error, "reason" => _reason}}} ->
+        {:error, resp}
+
+      {:ok, resp} ->
+        {:ok,
+         %Sofa{
+           couch
+           | features: resp.body["features"],
+             uuid: resp.body["uuid"],
+             vendor: resp.body["vendor"],
+             version: resp.body["version"]
+         }}
+    end
+  end
+
+  @doc """
+  Bang! wrapper around Sofa.connect/1; raises exceptions on error.
+  """
+  @spec connect!(%Sofa{} | String.t()) :: %Sofa{}
+  def connect!(sofa) when is_binary(sofa) do
+    init(sofa) |> client() |> connect!()
+  end
+
+  def connect!(sofa = %Sofa{}) when is_map(sofa) do
+    case connect(sofa) do
+      {:error, :econnrefused} ->
+        raise Sofa.Error, "connection refused to #{sofa.uri.host <> ~s(:) <> sofa.uri.port}"
+
+      {:ok, resp} ->
+        resp
+
+      _ ->
+        raise Sofa.Error, "unhandled error #{IO.inspect(sofa)}"
     end
   end
 end

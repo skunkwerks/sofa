@@ -1,5 +1,5 @@
 import Config
 
 if config_env() == :test do
-  config :tesla, Sofa, adapter: Tesla.Mock
+  config :tesla, adapter: Tesla.Mock
 end

@@ -1,1 +1,17 @@
-  {"couchdb":"Welcome","version":"3.1.1","git_sha":"ce596c65d","uuid":"59c032d3a6adcd5b44315137a124bf69","features":["access-ready","partitioned","pluggable-storage-engines","reshard","scheduler"],"vendor":{"name":"FreeBSD"}}
+{
+  "couchdb": "Welcome",
+  "version": "1.2.3",
+  "git_sha": "cafefeed",
+  "uuid": "5b08a751c82f9e217e14ef11d2704c2fd",
+  "features": [
+    "fake",
+    "access-ready",
+    "partitioned",
+    "pluggable-storage-engines",
+    "reshard",
+    "scheduler"
+  ],
+  "vendor": {
+    "name": "Artisanal"
+  }
+}
