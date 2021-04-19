@@ -188,6 +188,28 @@ defmodule Sofa do
   end
 
   @doc """
+  List all databases. Only available to admin users.
+  """
+  @spec all_dbs(%Sofa{}) :: {:error, any()} | {:ok, %Sofa{}, [String.t()]}
+  def all_dbs(sofa = %Sofa{}) do
+    case raw(sofa, "_all_dbs") do
+      {:error, reason} -> {:error, reason}
+      {:ok, _sofa, resp} -> {:ok, resp.body}
+    end
+  end
+
+  @doc """
+  Get _active_tasks. Only available to admin users.
+  """
+  @spec active_tasks(%Sofa{}) :: {:error, any()} | {:ok, %Sofa{}, [String.t()]}
+  def active_tasks(sofa = %Sofa{}) do
+    case raw(sofa, "active_tasks") do
+      {:error, reason} -> {:error, reason}
+      {:ok, _sofa, resp} -> {:ok, resp.body}
+    end
+  end
+
+  @doc """
   Minimal wrapper around native CouchDB HTTP API, allowing an escape hatch
   for raw functionality, and as the core abstraction layer for Sofa itself.
   """
@@ -216,7 +238,8 @@ defmodule Sofa do
          }}
 
       _ ->
-        {:error, result}
+        Logger.debug("unhandled error in #{method} #{path}")
+        raise(Sofa.Error, "unhandled error in #{method} #{path}")
     end
   end
 
@@ -230,10 +253,10 @@ defmodule Sofa do
           String.t(),
           String.t()
         ) :: %Sofa.Response{}
-  def raw!(sofa = %Sofa{}, uri \\ "", method \\ :get, query \\ "", body \\ "") do
-    case raw(sofa, uri, method, query, body) do
+  def raw!(sofa = %Sofa{}, path \\ "", method \\ :get, query \\ "", body \\ "") do
+    case raw(sofa, path, method, query, body) do
       {:ok, %Sofa{}, response = %Sofa.Response{}} -> response
-      {:error, reason} -> raise(Sofa.Error, reason)
+      {:error, reason} -> raise(Sofa.Error, "unhandled error in #{method} #{path}")
     end
   end
 end
