@@ -18,8 +18,8 @@ end
 ## Functionality
 
 - [x] server:   `Sofa.*`
-- [ ] raw HTTP: `Sofa.Raw.*`
-- [ ] database: `Sofa.Db.*`
+- [x] raw HTTP: `Sofa.Raw.*`
+- [ ] database: `Sofa.DB.*`
 - [ ] document: `Sofa.Doc.*`
 - [ ] view:     `Sofa.View.*`
 - [ ] changes:  `Sofa.Changes.*`

@@ -186,4 +186,54 @@ defmodule Sofa do
         raise Sofa.Error, "unhandled error from " <> url
     end
   end
+
+  @doc """
+  Minimal wrapper around native CouchDB HTTP API, allowing an escape hatch
+  for raw functionality, and as the core abstraction layer for Sofa itself.
+  """
+  @spec raw(
+          %Sofa{},
+          String.t(),
+          :get | :put | :post | :head | :option | :delete,
+          String.t(),
+          String.t()
+        ) ::
+          {:error, any()} | {:ok, %Sofa{}, %Sofa.Response{}}
+  def raw(sofa = %Sofa{}, uri \\ "", method \\ :get, _query \\ "", _body \\ "") do
+    case result = apply(Tesla, method, [sofa.client, uri]) do
+      {:ok, resp = %{body: %{"error" => _error, "reason" => _reason}}} ->
+        {:error, resp}
+
+      {:ok, %{} = resp} ->
+        {:ok, sofa,
+         %Sofa.Response{
+           body: resp.body,
+           url: resp.url,
+           query: resp.query,
+           method: resp.method,
+           headers: resp.headers,
+           status: resp.status
+         }}
+
+      _ ->
+        {:error, result}
+    end
+  end
+
+  @doc """
+  Bang! wrapper around Sofa.raw/1; raises exceptions on error.
+  """
+  @spec raw!(
+          %Sofa{},
+          String.t(),
+          :get | :put | :post | :head | :option | :delete,
+          String.t(),
+          String.t()
+        ) :: %Sofa.Response{}
+  def raw!(sofa = %Sofa{}, uri \\ "", method \\ :get, query \\ "", body \\ "") do
+    case raw(sofa, uri, method, query, body) do
+      {:ok, %Sofa{}, response = %Sofa.Response{}} -> response
+      {:error, reason} -> raise(Sofa.Error, reason)
+    end
+  end
 end

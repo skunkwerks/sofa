@@ -11,6 +11,9 @@ defmodule SofaTest do
     mock(fn
       %{method: :get, url: @default_uri} ->
         %Tesla.Env{status: 200, body: fixture("init_200.json")}
+
+      %{method: :get, url: @default_uri <> "_up"} ->
+        %Tesla.Env{method: :get, status: 200, body: fixture("up_200.json")}
     end)
 
     :ok
@@ -49,6 +52,13 @@ defmodule SofaTest do
     assert resp["version"] == sofa.version
     assert resp["uuid"] == sofa.uuid
     assert is_list(resp["features"])
+  end
+
+  test "basic raw GET /_up returns %Sofa.Response{} 200 OK" do
+    resp = fixture("up_200.json")
+    up = Sofa.connect!(@sofa) |> Sofa.raw!("_up")
+    assert %Sofa.Response{method: :get, status: 200} = up
+    assert up.body["status"] == "ok"
   end
 
   def fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
