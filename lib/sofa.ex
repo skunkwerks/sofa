@@ -215,16 +215,32 @@ defmodule Sofa do
   """
   @spec raw(
           %Sofa{},
-          String.t(),
-          :get | :put | :post | :head | :option | :delete,
-          String.t(),
-          String.t()
+          Tesla.Env.url(),
+          Tesla.Env.method(),
+          Tesla.Env.opts(),
+          Tesla.Env.body()
         ) ::
           {:error, any()} | {:ok, %Sofa{}, %Sofa.Response{}}
-  def raw(sofa = %Sofa{}, uri \\ "", method \\ :get, _query \\ "", _body \\ "") do
-    case result = apply(Tesla, method, [sofa.client, uri]) do
+  def raw(
+        sofa = %Sofa{},
+        path \\ "",
+        method \\ :get,
+        query \\ [],
+        body \\ ""
+      ) do
+    # each Tesla adapter handles "empty" options differently - some
+    # expect nil, others "", and some expect the key:value to be missing
+    case Tesla.request(sofa.client, url: path, method: method, query: query, body: body) do
       {:ok, resp = %{body: %{"error" => _error, "reason" => _reason}}} ->
-        {:error, resp}
+        {:error,
+         %Sofa.Response{
+           body: resp.body,
+           url: resp.url,
+           query: resp.query,
+           method: resp.method,
+           headers: resp.headers,
+           status: resp.status
+         }}
 
       {:ok, %{} = resp} ->
         {:ok, sofa,
@@ -248,12 +264,12 @@ defmodule Sofa do
   """
   @spec raw!(
           %Sofa{},
-          String.t(),
-          :get | :put | :post | :head | :option | :delete,
-          String.t(),
-          String.t()
+          Tesla.Env.url(),
+          Tesla.Env.method(),
+          Tesla.Env.opts(),
+          Tesla.Env.body()
         ) :: %Sofa.Response{}
-  def raw!(sofa = %Sofa{}, path \\ "", method \\ :get, query \\ "", body \\ "") do
+  def raw!(sofa = %Sofa{}, path \\ "", method \\ :get, query \\ [], body \\ %{}) do
     case raw(sofa, path, method, query, body) do
       {:ok, %Sofa{}, response = %Sofa.Response{}} -> response
       {:error, reason} -> raise(Sofa.Error, "unhandled error in #{method} #{path}")
