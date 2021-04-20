@@ -19,7 +19,7 @@ end
 
 - [x] server:   `Sofa.*`
 - [x] raw HTTP: `Sofa.Raw.*`
-- [ ] database: `Sofa.DB.*`
+- [x] database: `Sofa.DB.*`
 - [ ] document: `Sofa.Doc.*`
 - [ ] view:     `Sofa.View.*`
 - [ ] changes:  `Sofa.Changes.*`

@@ -12,6 +12,7 @@ defmodule SofaTest do
 
   setup do
     mock(fn
+      # required for Sofa.connect!/1 in all tests
       %{method: :get, url: @plain_url} ->
         %Tesla.Env{status: 200, body: fixture("init_200.json")}
 

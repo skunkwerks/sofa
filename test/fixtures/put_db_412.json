@@ -1,0 +1,5 @@
+
+{
+  "error": "file_exists",
+  "reason": "The database could not be created, the file already exists."
+}

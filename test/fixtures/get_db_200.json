@@ -1,0 +1,22 @@
+{
+  "db_name": "exists",
+  "purge_seq": "0-g1AAAABXeJzLYWBgYMpgTmEQTM4vTc5ISXIwNDLXMwBCwxyQVB4LkGRoAFL_gSArkQGP2kSGpHqIoiwAtOgYRA",
+  "update_seq": "0-g1AAAABXeJzLYWBgYMpgTmEQTM4vTc5ISXIwNDLXMwBCwxyQVB4LkGRoAFL_gSArkQGP2kSGpHqIoiwAtOgYRA",
+  "sizes": {
+    "file": 16700,
+    "external": 0,
+    "active": 0
+  },
+  "props": {},
+  "doc_del_count": 0,
+  "doc_count": 0,
+  "disk_format_version": 8,
+  "compact_running": false,
+  "cluster": {
+    "q": 2,
+    "n": 1,
+    "w": 1,
+    "r": 1
+  },
+  "instance_start_time": "0"
+}
