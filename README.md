@@ -58,3 +58,16 @@ iex> sofa = Sofa.init("http://admin:passwd@localhost:5984/")
 Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at [https://hexdocs.pm/sofa](https://hexdocs.pm/sofa).
+
+## Development and Testing
+
+Sofa should pass reasonable credo, and also respect dialyzer. If you run
+`make lint` you may wish to soflink `./.mix/plts` somewhere permanent, so
+that your PLT creation is preserved across runs.
+
+Sofa makes no guarantees about specific HTTP modules, but should run
+with:
+
+- default Erlang `httpc`
+- https://ninenines.eu/docs/en/gun/2.0
+- https://github.com/puzza007/katipo

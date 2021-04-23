@@ -2,9 +2,9 @@
 .PHONY: all-in-one build clean dist lint test update
 
 all-in-one:
-	mix do deps.get, deps.compile, format, credo, compile
+	mix do deps.get --all, deps.compile, format, credo, compile
 
-dist: clean lint build
+dist: clean all-in-one lint test
 
 clean:
 	rm -rf _build deps
@@ -13,7 +13,8 @@ lint:
 	# https://hexdocs.pm/dialyzex/readme.html
 	# https://hexdocs.pm/credo/Credo.html
 	# shows the debug info from dialyzer
-	env MIX_DEBUG=1 mix do format --check-formatted, credo --strict, dialyzer
+	test -L ~/.mix/plts -o -d ~/.mix/plts || mkdir p ~/.mix/plts/sofa
+	env MIX_DEBUG=0 mix do format --check-formatted, credo --strict, dialyzer
 
 build:
 	mix compile
@@ -30,4 +31,4 @@ update:
 	mix hex.docs fetch
 
 test:
-	mix test --trace --no-deps-check
+	mix test --trace
