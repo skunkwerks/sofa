@@ -238,7 +238,7 @@ defmodule Sofa do
            url: resp.url,
            query: resp.query,
            method: resp.method,
-           headers: resp.headers,
+           headers: Sofa.Cushion.untaint_headers(resp.headers),
            status: resp.status
          }}
 
@@ -249,7 +249,7 @@ defmodule Sofa do
            url: resp.url,
            query: resp.query,
            method: resp.method,
-           headers: resp.headers,
+           headers: Sofa.Cushion.untaint_headers(resp.headers),
            status: resp.status
          }}
 

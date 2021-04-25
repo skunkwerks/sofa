@@ -10,15 +10,15 @@ defmodule Sofa.Response do
   iex> Sofa.init() |> Sofa.client() |> Sofa.connect!() |> Sofa.raw("/_up")
   %Sofa.Response{
     body: nil,
-    headers: [
-      {"cache-control", "must-revalidate"},
-      {"date", "Mon, 19 Apr 2021 12:11:43 GMT"},
-      {"server", "CouchDB/3.1.1 (Erlang OTP/22)"},
-      {"content-length", "27"},
-      {"content-type", "application/json"},
-      {"x-couch-request-id", "e12bb5190d"},
-      {"x-couchdb-body-time", "0"}
-    ],
+    headers: %{
+      cache_control: "must-revalidate",
+      content_length: 95,
+      content_type: "application/json",
+      couch_body_time: 0,
+      couch_request_id: "aa6cc50741",
+      date: "Sun, 25 Apr 2021 20:04:34 GMT",
+      server: "CouchDB/3.1.1 (Erlang OTP/22)"
+    },
     method: :get,
     query: [],
     status: 200,
@@ -31,6 +31,6 @@ defmodule Sofa.Response do
             status: nil,
             method: :get,
             query: "",
-            headers: [],
+            headers: %{},
             url: "/"
 end
