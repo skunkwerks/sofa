@@ -28,6 +28,18 @@ defmodule SofaDbTest do
       %{method: :put, url: @plain_url <> "already"} ->
         %Tesla.Env{method: :put, status: 412, body: fixture("put_db_412.json")}
 
+      %{method: :head, url: @plain_url <> "forbidden"} ->
+        %Tesla.Env{method: :head, status: 403, body: ""}
+
+      %{method: :head, url: @plain_url <> "missing"} ->
+        %Tesla.Env{method: :head, status: 404, body: ""}
+
+      %{method: :head, url: @plain_url <> "exists"} ->
+        %Tesla.Env{method: :head, status: 200, body: ""}
+
+      %{method: :head, url: @plain_url <> "secured", headers: @admin_header} ->
+        %Tesla.Env{method: :head, status: 200, body: ""}
+
       %{method: :delete, url: @plain_url <> "trash"} ->
         %Tesla.Env{method: :delete, status: 202, body: fixture("delete_db_202.json")}
     end)
@@ -93,6 +105,40 @@ defmodule SofaDbTest do
               status: 202,
               body: ^expected
             }} = response
+  end
+
+  test "HEAD /secured with authentication returns 200 OK" do
+    response = Sofa.connect!(@admin_sofa) |> Sofa.DB.open("secured")
+
+    assert {:ok, %Sofa{database: "secured"}} = response
+  end
+
+  test "HEAD /forbidden returns 403 Forbidden" do
+    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.open("forbidden")
+
+    assert {:error,
+            %Sofa.Response{
+              method: :head,
+              status: 403,
+              body: ""
+            }} = response
+  end
+
+  test "HEAD /missing returns 404 Object Not Found" do
+    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.open("missing")
+
+    assert {:error,
+            %Sofa.Response{
+              method: :head,
+              status: 404,
+              body: ""
+            }} = response
+  end
+
+  test "open!/2 returns %Sofa{database: :dbname}" do
+    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.open("exists")
+
+    assert {:ok, %Sofa{database: "exists"}} = response
   end
 
   defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
