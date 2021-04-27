@@ -25,6 +25,7 @@ end
 - [ ] changes:  `Sofa.Changes.*`
 - [ ] timeouts for requests and inactivity
 - [ ] bearer token authorisation
+- [ ] runtime tracing filterable by method & URL
 
 ## Usage
 
