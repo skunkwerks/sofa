@@ -25,6 +25,8 @@ defmodule Sofa do
     :auth,
     # re-usable tesla HTTP client
     :client,
+    # optional database field
+    :database,
     # feature response as returned from CouchDB `GET /`
     :features,
     # optional timeout for CouchDB-specific responses
@@ -38,6 +40,18 @@ defmodule Sofa do
     # CouchDB's API version
     :version
   ]
+
+  @type t :: %__MODULE__{
+          auth: any,
+          client: nil | Tesla.Client.t(),
+          database: nil | binary,
+          features: nil | list,
+          timeout: nil | integer,
+          uri: nil | URI.t(),
+          uuid: nil | binary,
+          vendor: nil | map,
+          version: nil | binary
+        }
 
   require Logger
 
@@ -75,10 +89,9 @@ defmodule Sofa do
   }
 
   """
-  @spec init(uri :: String.t() | %URI{}) :: %Sofa{}
+  @spec init(uri :: String.t() | URI.t()) :: Sofa.t()
   def init(uri \\ @default_uri) do
     uri = URI.parse(uri)
-
     %Sofa{
       auth: uri.userinfo,
       uri: uri
@@ -89,7 +102,7 @@ defmodule Sofa do
   Builds Telsa runtime client, with appropriate middleware header credentials,
   from supplied %Sofa{} struct.
   """
-  @spec client(%Sofa{}) :: %Sofa{}
+  @spec client(Sofa.t()) :: Sofa.t()
   def client(couch = %Sofa{uri: uri}) do
     couch_url = uri.scheme <> "://" <> uri.host <> ":#{uri.port}/"
 
@@ -139,7 +152,7 @@ defmodule Sofa do
   for example, the URL is unreachable, times out, supplied credentials are
   rejected by CouchDB, or returns unexpected HTTP status codes.
   """
-  @spec connect(String.t() | %Sofa{}) :: {:ok, %Sofa{}} | {:error, any()}
+  @spec connect(String.t() | Sofa.t()) :: {:ok, Sofa.t()} | {:error, any()}
   def connect(sofa) when is_binary(sofa) do
     init(sofa) |> client() |> connect()
   end
@@ -167,12 +180,12 @@ defmodule Sofa do
   @doc """
   Bang! wrapper around Sofa.connect/1; raises exceptions on error.
   """
-  @spec connect!(String.t() | %Sofa{}) :: %Sofa{}
+  @spec connect!(String.t() | Sofa.t()) :: Sofa.t()
   def connect!(sofa) when is_binary(sofa) do
     init(sofa) |> client() |> connect!()
   end
 
-  def connect!(sofa = %Sofa{}) when is_map(sofa) do
+  def connect!(sofa = %Sofa{}) when is_struct(sofa, Sofa) do
     url = sofa.uri.host <> ":" <> to_string(sofa.uri.port)
 
     case connect(sofa) do
@@ -190,7 +203,7 @@ defmodule Sofa do
   @doc """
   List all databases. Only available to admin users.
   """
-  @spec all_dbs(%Sofa{}) :: {:error, any()} | {:ok, %Sofa{}, [String.t()]}
+  @spec all_dbs(Sofa.t()) :: {:error, any()} | {:ok, Sofa.t(), [String.t()]}
   def all_dbs(sofa = %Sofa{}) do
     case raw(sofa, "_all_dbs") do
       {:error, reason} -> {:error, reason}
@@ -201,7 +214,7 @@ defmodule Sofa do
   @doc """
   Get _active_tasks. Only available to admin users.
   """
-  @spec active_tasks(%Sofa{}) :: {:error, any()} | {:ok, %Sofa{}, [String.t()]}
+  @spec active_tasks(Sofa.t()) :: {:error, any()} | {:ok, Sofa.t(), [String.t()]}
   def active_tasks(sofa = %Sofa{}) do
     case raw(sofa, "active_tasks") do
       {:error, reason} -> {:error, reason}
@@ -214,13 +227,13 @@ defmodule Sofa do
   for raw functionality, and as the core abstraction layer for Sofa itself.
   """
   @spec raw(
-          %Sofa{},
+          Sofa.t(),
           Tesla.Env.url(),
           Tesla.Env.method(),
           Tesla.Env.opts(),
           Tesla.Env.body()
         ) ::
-          {:error, any()} | {:ok, %Sofa{}, %Sofa.Response{}}
+          {:error, any()} | {:ok, Sofa.t(), %Sofa.Response{}}
   def raw(
         sofa = %Sofa{},
         path \\ "",
@@ -255,7 +268,7 @@ defmodule Sofa do
 
       _ ->
         Logger.debug("unhandled error in #{method} #{path}")
-        raise(Sofa.Error, "unhandled error in #{method} #{path}")
+        raise Sofa.Error, "unhandled error in #{method} #{path}"
     end
   end
 
@@ -263,7 +276,7 @@ defmodule Sofa do
   Bang! wrapper around Sofa.raw/1; raises exceptions on error.
   """
   @spec raw!(
-          %Sofa{},
+          Sofa.t(),
           Tesla.Env.url(),
           Tesla.Env.method(),
           Tesla.Env.opts(),
