@@ -92,6 +92,7 @@ defmodule Sofa do
   @spec init(uri :: String.t() | URI.t()) :: Sofa.t()
   def init(uri \\ @default_uri) do
     uri = URI.parse(uri)
+
     %Sofa{
       auth: uri.userinfo,
       uri: uri
