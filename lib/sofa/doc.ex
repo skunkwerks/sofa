@@ -64,7 +64,7 @@ defmodule Sofa.Doc do
          status: 200,
          headers: %{etag: etag}
        }} ->
-        {:ok, sofa, %__MODULE__{id: doc, rev: etag}}
+        {:ok, %__MODULE__{id: doc, rev: etag}}
 
       {:ok, _sofa,
        %Sofa.Response{
