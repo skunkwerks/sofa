@@ -33,17 +33,17 @@ defmodule Sofa.Doc do
   Creates a new (empty) document
   """
 
-  @spec new(String.t() | %{}) :: %__MODULE__{}
+  @spec new(String.t() | %{}) :: %Sofa.Doc{}
   def new(id) when is_binary(id) do
-    %__MODULE__{id: id, body: %{}}
+    %Sofa.Doc{id: id, body: %{}}
   end
 
   def new(%{id: id}) when is_binary(id) do
-    %__MODULE__{id: id, body: %{}}
+    %Sofa.Doc{id: id, body: %{}}
   end
 
   def new(%{id: id, body: body}) when is_binary(id) and is_map(body) do
-    %__MODULE__{id: id, body: body}
+    %Sofa.Doc{id: id, body: body}
   end
 
   @doc """
@@ -53,7 +53,7 @@ defmodule Sofa.Doc do
   - {:error, not_found} # doc doesn't exist
   - {:ok, %Sofa.Doc{}} # doc exists and has metadata
   """
-  @spec exists(%Sofa{}, String.t()) :: {:error, any()} | {:ok, %{}}
+  @spec exists(Sofa.t(), String.t()) :: {:error, any()} | {:ok, %{}}
   def exists(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
     case Sofa.raw(sofa, db <> "/" <> doc, :head) do
       {:error, reason} ->
@@ -64,7 +64,7 @@ defmodule Sofa.Doc do
          status: 200,
          headers: %{etag: etag}
        }} ->
-        {:ok, %__MODULE__{id: doc, rev: etag}}
+        {:ok, %Sofa.Doc{id: doc, rev: etag}}
 
       {:ok, _sofa,
        %Sofa.Response{
@@ -77,7 +77,7 @@ defmodule Sofa.Doc do
   @doc """
   Check if doc exists via `HEAD /:db/:doc and returns either true or false
   """
-  @spec exists?(%Sofa{}, String.t()) :: false | true
+  @spec exists?(Sofa.t(), String.t()) :: false | true
   def exists?(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
     case Sofa.raw(sofa, db <> "/" <> doc, :head) do
       {:ok, _sofa,
@@ -95,7 +95,7 @@ defmodule Sofa.Doc do
   @doc """
   Converts internal %Sofa.Doc{} format to CouchDB-native JSON-friendly map
   """
-  @spec to_map(%__MODULE__{}) :: map()
+  @spec to_map(%Sofa.Doc{}) :: map()
   def to_map(doc = %Sofa.Doc{}) do
     Map.from_struct(doc)
   end
@@ -103,7 +103,7 @@ defmodule Sofa.Doc do
   @doc """
   Converts CouchDB-native JSON-friendly map to internal %Sofa.Doc{} format
   """
-  @spec from_map(map()) :: %__MODULE__{}
+  @spec from_map(map()) :: %Sofa.Doc{}
   def from_map(m = %{id: id}) do
     # remove all keys that are defined already in the struct
     body = Map.drop(m, Map.from_struct(%Sofa.Doc{}) |> Map.keys())
@@ -115,7 +115,7 @@ defmodule Sofa.Doc do
   end
 
   # this would be a Protocol for people to defimpl on their own structs
-  # @spec from_struct(map()) :: %__MODULE__{}
+  # @spec from_struct(map()) :: %Sofa.Doc{}
   # def from_struct(m = %{id: id, __Struct__: type}) do
   # end
 
@@ -124,12 +124,12 @@ defmodule Sofa.Doc do
   # """
 
   #   @spec new() :: {%Sofa.Doc.t()}
-  #   def new(), do: new(__MODULE__)
+  #   def new(), do: new(Sofa.Doc)
 
   #   @doc """
   #   create doc
   #   """
-  #   @spec create(%Sofa{}, String.t()) :: {:error, any()} | {:ok, %Sofa{}, any()}
+  #   @spec create(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
   #   def create(sofa = %Sofa{}, db) when is_binary(db) do
   #     case Sofa.raw(sofa, db, :put) do
   #       {:error, reason} ->
@@ -151,7 +151,7 @@ defmodule Sofa.Doc do
   #   @doc """
   #   delete doc
   #   """
-  #   @spec delete(%Sofa{}, String.t()) :: {:error, any()} | {:ok, %Sofa{}, any()}
+  #   @spec delete(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
   #   def delete(sofa = %Sofa{}, db) when is_binary(db) do
   #     case Sofa.raw(sofa, db, :delete) do
   #       {:error, reason} ->
