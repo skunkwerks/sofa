@@ -244,6 +244,7 @@ defmodule Sofa do
       ) do
     # each Tesla adapter handles "empty" options differently - some
     # expect nil, others "", and some expect the key:value to be missing
+
     case Tesla.request(sofa.client, url: path, method: method, query: query, body: body) do
       {:ok, resp = %{body: %{"error" => _error, "reason" => _reason}}} ->
         {:error,
@@ -286,7 +287,7 @@ defmodule Sofa do
   def raw!(sofa = %Sofa{}, path \\ "", method \\ :get, query \\ [], body \\ %{}) do
     case raw(sofa, path, method, query, body) do
       {:ok, %Sofa{}, response = %Sofa.Response{}} -> response
-      {:error, reason} -> raise(Sofa.Error, "unhandled error in #{method} #{path}")
+      {:error, _reason} -> raise(Sofa.Error, "unhandled error in #{method} #{path}")
     end
   end
 end

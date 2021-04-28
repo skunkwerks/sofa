@@ -1,0 +1,4 @@
+{
+  "error": "forbidden",
+  "reason": "doc.type must be user"
+}

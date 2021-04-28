@@ -1,0 +1,16 @@
+{
+  "_id": "everything",
+  "_rev": "1-7706b7ae496932824e67706d2e72aa3b",
+  "array": [
+    1,
+    "two",
+    {
+      "obj": 3
+    }
+  ],
+  "int": 333,
+  "nested": {
+    "egg": "chicken"
+  },
+  "no": false
+}

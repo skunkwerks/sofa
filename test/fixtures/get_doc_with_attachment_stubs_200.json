@@ -1,0 +1,27 @@
+{
+  "_id": "attila",
+  "_rev": "4-322add00c33cab838bf9d7909f18d4f5",
+  "_attachments": {
+    "helmet.png": {
+      "content_type": "image/png",
+      "revpos": 4,
+      "digest": "md5-hCzUwAJpP8b6cq+SvEFfTQ==",
+      "length": 159877,
+      "stub": true
+    },
+    "the_hun.json": {
+      "content_type": "application/json",
+      "revpos": 3,
+      "digest": "md5-sGYAXXcvF3GvYkGw3x882A==",
+      "length": 18,
+      "stub": true
+    },
+    "the_hun.txt": {
+      "content_type": "text/plain",
+      "revpos": 2,
+      "digest": "md5-lSvsN0hwDhFKO2929yUNDg==",
+      "length": 8,
+      "stub": true
+    }
+  }
+}
