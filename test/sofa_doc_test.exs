@@ -6,8 +6,8 @@ defmodule SofaDocTest do
   @admin_password "admin:passwd"
   @admin_url "http://" <> @admin_password <> "@localhost:5984/"
   @admin_sofa Sofa.init(@admin_url) |> Sofa.client()
-  @etag_header {"ETag", ~s("1-967a00dff5e02add41819138abb3284d")}
-  @ifmatch_header {"If-Match", ~s("1-967a00dff5e02add41819138abb3284d")}
+  @etag_header {"ETag", ~s("1-leet")}
+  @ifmatch_header {"If-Match", ~s("1-leet")}
 
   import Tesla.Mock
 
@@ -25,6 +25,8 @@ defmodule SofaDocTest do
         %Tesla.Env{method: :head, status: 200, body: ""}
 
       # actual doc tests start here
+      # https://docs.couchdb.org/en/stable/api/document/common.html
+
       # HEAD doc
       %{method: :head, url: @plain_url <> "mydb/missing"} ->
         %Tesla.Env{method: :head, status: 404, body: ""}
@@ -38,6 +40,32 @@ defmodule SofaDocTest do
 
       %{method: :get, url: @plain_url <> "mydb/exists"} ->
         %Tesla.Env{method: :get, status: 200, headers: [@etag_header]}
+
+      # DELETE doc
+      %{method: :delete, url: @plain_url <> "mydb/missing"} ->
+        %Tesla.Env{
+          method: :delete,
+          status: 404,
+          headers: [@ifmatch_header],
+          body: fixture("delete_doc_404.json")
+        }
+
+      %{method: :delete, url: @plain_url <> "mydb/wrong_rev"} ->
+        %Tesla.Env{
+          method: :delete,
+          status: 409,
+          headers: [],
+          body: fixture("delete_doc_409.json")
+        }
+
+      %{method: :delete, url: @plain_url <> "mydb/exists"} ->
+        %Tesla.Env{
+          method: :delete,
+          status: 200,
+          headers: [@ifmatch_header],
+          body: fixture("delete_doc_200.json")
+        }
+
         # put
     end)
 
@@ -72,6 +100,45 @@ defmodule SofaDocTest do
       |> Sofa.Doc.exists?("exists")
 
     assert response
+  end
+
+  # DELETE doc
+  # https://docs.couchdb.org/en/stable/api/document/common.html
+  # %{method: :delete, url: @plain_url <> "mydb/missing"} ->
+  #   %Tesla.Env{method: :delete, status: 404, headers: [@ifmatch_header], body: fixture("delete_doc_404.json")}
+
+  # %{method: :delete, url: @plain_url <> "mydb/wrong_rev"} ->
+  #   %Tesla.Env{method: :delete, status: 409, headers: [],body: fixture("delete_doc_409.json") }
+
+  # %{method: :delete, url: @plain_url <> "mydb/exists"} ->
+  #   %Tesla.Env{method: :delete, status: 200, headers: [@ifmatch_header], body: fixture("delete_doc_200.json")}
+
+  test "DELETE /mydb/missing returns 404 Not Found" do
+    response =
+      Sofa.connect!(@plain_sofa)
+      |> Sofa.DB.open!("mydb")
+      |> Sofa.Doc.delete!("missing")
+
+    assert {:error, :not_found} = response
+  end
+
+  test "DELETE /mydb/wrong_rev returns 409 Conflict" do
+    response =
+      Sofa.connect!(@plain_sofa)
+      |> Sofa.DB.open!("mydb")
+      |> Sofa.Doc.delete!("wrong_rev")
+    assert {:error, :conflict} = response
+  end
+
+  test "DELETE /mydb/exists returns 200 OK" do
+    expected = fixture("delete_doc_200.json")
+
+    response =
+      Sofa.connect!(@plain_sofa)
+      |> Sofa.DB.open!("mydb")
+      |> Sofa.Doc.delete!("exists")
+
+    assert :ok = response
   end
 
   defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
