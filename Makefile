@@ -13,7 +13,7 @@ lint:
 	# https://hexdocs.pm/dialyzex/readme.html
 	# https://hexdocs.pm/credo/Credo.html
 	# shows the debug info from dialyzer
-	test -L ~/.mix/plts -o -d ~/.mix/plts || mkdir p ~/.mix/plts/sofa
+	test -L ~/.mix/plts -o -d ~/.mix/plts || mkdir -p ~/.mix/plts/sofa
 	env MIX_DEBUG=0 mix do format --check-formatted, credo --strict, dialyzer
 
 build:
