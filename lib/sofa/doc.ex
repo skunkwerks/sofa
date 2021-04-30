@@ -28,6 +28,7 @@ defmodule Sofa.Doc do
         }
 
   alias Sofa.Doc
+
   @doc """
   Creates a new (empty) document
   """
