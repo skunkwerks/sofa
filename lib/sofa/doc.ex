@@ -28,7 +28,6 @@ defmodule Sofa.Doc do
         }
 
   alias Sofa.Doc
-
   @doc """
   Creates a new (empty) document
   """
@@ -286,36 +285,21 @@ defmodule Sofa.Doc do
   @doc """
   delete doc
   """
-  @spec delete(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
-  def delete(sofa = %Sofa{}, doc) when is_binary(doc) do
-    case Sofa.raw(sofa, doc, :delete) do
-      {:error, reason} ->
-        {:error, reason}
-
-      {:ok, _sofa, resp} ->
-        {:ok, sofa,
-         %Sofa.Response{
-           body: resp.body,
-           url: resp.url,
-           query: resp.query,
-           method: resp.method,
-           headers: resp.headers,
-           status: resp.status
-         }}
-    end
-  end
-
-  @doc """
-  delete doc
-  """
-  @spec delete!(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
-  def delete!(sofa = %Sofa{database: db}, doc) when is_binary(doc) and is_binary(db) do
-    case Sofa.raw(sofa, db <> "/" <> doc, :delete) do
+  @spec delete(Sofa.t(), Sofa.Doc.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
+  def delete(sofa = %Sofa{database: db}, %Sofa.Doc{id: id, rev: rev})
+      when is_binary(db) and is_binary(rev) do
+    case Sofa.raw(sofa, db <> "/" <> id, :delete, [], "", [{"If-Match", rev}]) do
       {:error, %Sofa.Response{status: 409}} ->
         {:error, :conflict}
 
       {:error, %Sofa.Response{status: 404}} ->
         {:error, :not_found}
+
+      {:error, %Sofa.Response{status: 400}} ->
+        {:error, :bad_request}
+
+      {:error, %Sofa.Response{status: 401}} ->
+        {:error, :unathorized}
 
       {:ok, _sofa, _resp} ->
         :ok

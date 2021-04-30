@@ -140,30 +140,34 @@ defmodule SofaDocTest do
   # DELETE doc
   # https://docs.couchdb.org/en/stable/api/document/common.html
   test "DELETE /mydb/missing returns 404 Not Found" do
+    doc = Sofa.Doc.from_map(%{"_id" => "missing", "_rev" => "stuff"})
+
     response =
       Sofa.connect!(@plain_sofa)
       |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.delete!("missing")
+      |> Sofa.Doc.delete(doc)
 
     assert {:error, :not_found} = response
   end
 
   test "DELETE /mydb/wrong_rev returns 409 Conflict" do
+    doc = Sofa.Doc.from_map(%{"_id" => "wrong_rev", "_rev" => "wrong_rev"})
+
     response =
       Sofa.connect!(@plain_sofa)
       |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.delete!("wrong_rev")
+      |> Sofa.Doc.delete(doc)
 
     assert {:error, :conflict} = response
   end
 
   test "DELETE /mydb/exists returns 200 OK" do
-    expected = fixture("delete_doc_200.json")
+    doc = Sofa.Doc.from_map(%{"_id" => "exists", "_rev" => "stuff"})
 
     response =
       Sofa.connect!(@plain_sofa)
       |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.delete!("exists")
+      |> Sofa.Doc.delete(doc)
 
     assert :ok = response
   end

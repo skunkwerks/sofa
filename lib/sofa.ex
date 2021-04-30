@@ -232,7 +232,8 @@ defmodule Sofa do
           Tesla.Env.url(),
           Tesla.Env.method(),
           Tesla.Env.opts(),
-          Tesla.Env.body()
+          Tesla.Env.body(),
+          Tesla.Env.headers()
         ) ::
           {:error, any()} | {:ok, Sofa.t(), %Sofa.Response{}}
   def raw(
@@ -240,12 +241,18 @@ defmodule Sofa do
         path \\ "",
         method \\ :get,
         query \\ [],
-        body \\ ""
+        body \\ "",
+        headers \\ []
       ) do
     # each Tesla adapter handles "empty" options differently - some
     # expect nil, others "", and some expect the key:value to be missing
-
-    case Tesla.request(sofa.client, url: path, method: method, query: query, body: body) do
+    case Tesla.request(sofa.client,
+           url: path,
+           method: method,
+           query: query,
+           headers: headers,
+           body: body
+         ) do
       {:ok, resp = %{body: %{"error" => _error, "reason" => _reason}}} ->
         {:error,
          %Sofa.Response{
