@@ -173,7 +173,6 @@ defmodule SofaDocTest do
   end
 
   # GET doc
-  @tag :wip
   test "GET /mydb/missing returns {:error, :not_found}" do
     response =
       Sofa.connect!(@plain_sofa)
@@ -260,7 +259,7 @@ defmodule SofaDocTest do
 
   test "from_map doesn't leak forbidden keys into doc.body" do
     bad_keys = ["_rev", "_attachments", :_id, :_rev, :_attachments]
-    good_map = %{"_id" => "toasty", "key" => "important"}
+    good_map = %{"_id" => "toasty", "key" => "important", "type" => "hellvetica"}
 
     pruned_map =
       Enum.reduce(bad_keys, good_map, fn x, a -> Map.put(a, x, "blah") end)
@@ -272,8 +271,14 @@ defmodule SofaDocTest do
              body: %{"key" => "important"},
              id: "toasty",
              rev: "blah",
-             type: nil
+             type: :hellvetica
            })
+  end
+
+  test "from_map handles type-as-atom correctly" do
+    with_type = %Sofa.Doc{Sofa.Doc.new("whatever") | type: :ok}
+
+    assert with_type.type == :ok
   end
 
   test "docs round trip cleanly from map->struct->map again" do

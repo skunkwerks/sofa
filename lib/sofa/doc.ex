@@ -92,12 +92,12 @@ defmodule Sofa.Doc do
   end
 
   @doc """
-  Fetch doc and return either
+  GET doc and returns standard HTTP status, or the requested doc
 
-  - {:error, not_found} # doc doesn't exist
-  - {:ok, %Sofa.Doc{}} # doc exists and has metadata
+  - {:error, :not_found}  # doc doesn't exist, or similar HTTP status
+  - %Sofa.Doc{}           # doc exists and has metadata
   """
-  @spec get(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.Doc.t()}
+  @spec get(Sofa.t(), String.t()) :: {:error, any()} | Sofa.Doc.t()
   def get(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
     case Sofa.raw(sofa, db <> "/" <> doc, :get) do
       {:ok, _sofa,
@@ -233,19 +233,20 @@ defmodule Sofa.Doc do
     # key beginning with "_" as they are restricted within CouchDB
     body =
       Map.drop(m, [
-        "_rev",
-        "_id",
         "_attachments",
-        :_rev,
+        "_id",
+        "_rev",
+        "type",
+        :_attachments,
         :_id,
-        :_attachments
+        :_rev
         | Map.from_struct(%Sofa.Doc{}) |> Map.keys()
       ])
 
     # grab the rest we need them
     rev = Map.get(m, "_rev", nil)
     atts = Map.get(m, "_attachments", nil)
-    type = Map.get(m, "type", nil)
+    type = Map.get(m, "type", "nil") |> String.to_existing_atom()
     %Sofa.Doc{attachments: atts, body: body, id: id, rev: rev, type: type}
   end
 
