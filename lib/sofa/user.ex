@@ -62,17 +62,38 @@ defmodule Sofa.User do
 
   @doc """
   PUT a valid Sofa.Doc with user attributes into the `/_users` DB.
+
+  If `doc.body.password` is supplied, remove hash info and update password.
   """
   @spec put(Sofa.t(), Sofa.Doc.t()) :: {:ok, Sofa.Doc.t()} | {:error, any()}
   def put(
         sofa = %Sofa{},
         doc = %Sofa.Doc{
           type: :user,
-          body: %{password: _password, roles: [_roles], name: user_name},
+          body: %{roles: [_roles], name: user_name} = body,
           id: @prefix <> user_name
         }
-      ),
-      do: Sofa.Doc.put(%Sofa{sofa | database: @user_db}, doc)
+      ) do
+    # update password if requested by stripping out old fields
+    # This ensures that passwords are regenerated with best possible
+    # algorithm, as defined in local.ini settings
+    body =
+      case Map.has_key?(body, "password") do
+        true ->
+          Map.delete(body, "derived_key")
+          |> Map.delete("salt")
+          |> Map.delete("iterations")
+          |> Map.delete("password_scheme")
+
+        false ->
+          body
+      end
+
+    Sofa.Doc.put(
+      %Sofa{sofa | database: @user_db},
+      %Sofa.Doc{doc | body: body}
+    )
+  end
 
   @doc """
   GET doc and returns standard HTTP status codes, or the user doc
@@ -89,6 +110,30 @@ defmodule Sofa.User do
       %Sofa.Doc{type: :user, id: ^path, body: %{"name" => ^name}} -> resp
       {:error, _reason} -> resp
     end
+  end
+
+  @doc """
+  Resets user password. NB you still need to write this doc to CouchDB.
+  """
+  @spec reset_password(Sofa.Doc.t(), String.t()) :: Sofa.Doc.t()
+  def reset_password(
+        %Sofa.Doc{type: :user, id: @prefix <> name, body: %{"name" => name}} = doc,
+        password \\ ""
+      )
+      when is_binary(password) do
+    %Sofa.Doc{
+      doc
+      | type: :user,
+        body:
+          Map.put(
+            doc.body,
+            :password,
+            case password do
+              "" -> generate_random_secret()
+              _ -> password
+            end
+          )
+    }
   end
 
   @doc """
