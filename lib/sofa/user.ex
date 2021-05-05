@@ -72,7 +72,7 @@ defmodule Sofa.User do
           type: :user,
           body:
             %{
-              "roles" => [_roles],
+              "roles" => _roles,
               "name" => user_name
             } = body,
           id: @prefix <> user_name
