@@ -35,7 +35,7 @@ defmodule Sofa.User do
   iex> Sofa.User.new("jan", "apple", ["pointy_hat", "users_db"])
   %Sofa.Doc{
     attachments: %{},
-    body: %{name: "jan", password: "apple", roles: ["pointy_hat", "users_db"]},
+    body: %{"name" => "jan", "password" => "apple", "roles" => ["pointy_hat", "users_db"]},
     id: "org.couchdb.user:jan",
     rev: nil,
     type: :user
@@ -49,13 +49,13 @@ defmodule Sofa.User do
       Sofa.Doc.new(@prefix <> name)
       | type: :user,
         body: %{
-          name: name,
-          password:
+          "name" => name,
+          "password" =>
             case password do
               "" -> generate_random_secret()
               _ -> password
             end,
-          roles: roles
+          "roles" => roles
         }
     }
   end
@@ -70,7 +70,11 @@ defmodule Sofa.User do
         sofa = %Sofa{},
         doc = %Sofa.Doc{
           type: :user,
-          body: %{roles: [_roles], name: user_name} = body,
+          body:
+            %{
+              "roles" => [_roles],
+              "name" => user_name
+            } = body,
           id: @prefix <> user_name
         }
       ) do
