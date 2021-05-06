@@ -275,8 +275,8 @@ defmodule Sofa do
            status: resp.status
          }}
 
-      _ ->
-        Logger.debug("unhandled error in #{method} #{path}")
+      error ->
+        Logger.debug("unhandled error in #{method} #{path} #{inspect(error)}")
         raise Sofa.Error, "unhandled error in #{method} #{path}"
     end
   end
@@ -293,8 +293,13 @@ defmodule Sofa do
         ) :: %Sofa.Response{}
   def raw!(sofa = %Sofa{}, path \\ "", method \\ :get, query \\ [], body \\ %{}) do
     case raw(sofa, path, method, query, body) do
-      {:ok, %Sofa{}, response = %Sofa.Response{}} -> response
-      {:error, _reason} -> raise(Sofa.Error, "unhandled error in #{method} #{path}")
+      {:ok, %Sofa{}, response = %Sofa.Response{}} ->
+        response
+
+      {:error, _reason} = error ->
+        raise(Sofa.Error, "unhandled error in #{method} #{path}")
+
+        Logger.debug("unhandled error in #{method} #{path} #{inspect(error)}")
     end
   end
 end
