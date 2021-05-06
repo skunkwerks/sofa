@@ -10,8 +10,8 @@ defmodule Sofa.User do
 
   You need appropriate permissions for this to work - either as administrator,
   or alternatively, if your user/group have permissions *and* your `local.ini`
-  has `users_db_security_editable = true` set in `[couchdb]` section. If you
-  use a group to assign permissions, `users_db` is a good choice.
+  has `users_security_editable = true` set in `[couchdb]` section. If you
+  use a group to assign permissions, `users` is a good choice.
   """
 
   # the doc _id prefix used everywhere by CouchDB
@@ -32,10 +32,10 @@ defmodule Sofa.User do
 
 
   ## Examples
-  iex> Sofa.User.new("jan", "apple", ["pointy_hat", "users_db"])
+  iex> Sofa.User.new("jan", "apple", ["pointy_hat", "users"])
   %Sofa.Doc{
     attachments: %{},
-    body: %{"name" => "jan", "password" => "apple", "roles" => ["pointy_hat", "users_db"]},
+    body: %{"name" => "jan", "password" => "apple", "roles" => ["pointy_hat", "users"]},
     id: "org.couchdb.user:jan",
     rev: nil,
     type: :user
