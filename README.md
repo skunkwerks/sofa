@@ -78,7 +78,8 @@ API transparently.
 - [x] server:   `Sofa.*`
 - [x] raw HTTP: `Sofa.Raw.*`
 - [x] database: `Sofa.DB.*`
-- [ ] document: `Sofa.Doc.*`
+- [x] document: `Sofa.Doc.*`
+- [x] user:     `Sofa.User.*`
 - [ ] attachments
 - [ ] transparent Struct API
 - [ ] view:     `Sofa.View.*`
