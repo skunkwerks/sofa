@@ -3,9 +3,6 @@ defmodule SofaUserTest do
 
   @plain_url "http://localhost:5984/"
   @plain_sofa Sofa.init(@plain_url) |> Sofa.client()
-  @user_password "nommy:passwd"
-  @user_url "http://" <> @user_password <> "@localhost:5984/"
-  @user_sofa Sofa.init(@user_url) |> Sofa.client()
 
   import Tesla.Mock
 
@@ -15,15 +12,24 @@ defmodule SofaUserTest do
       %{method: :get, url: @plain_url} ->
         %Tesla.Env{status: 200, body: fixture("init_200.json")}
 
-      # fake a DB so we can open!/2 it
+      # fake _users DB so we can open!/2 it
       %{method: :get, url: @plain_url <> "_users"} ->
         %Tesla.Env{method: :get, status: 200, body: fixture("get_db_200.json")}
 
+      # fake _users DB so we can open!/2 it
       %{method: :head, url: @plain_url <> "_users"} ->
         %Tesla.Env{method: :head, status: 200, body: ""}
 
-        # actual doc tests start here
-        # https://docs.couchdb.org/en/stable/api/document/common.html
+      # actual doc tests start here
+      # https://docs.couchdb.org/en/stable/api/document/common.html
+      %{method: :put, url: @plain_url <> "_users/org.couchdb.user:dch"} ->
+        %Tesla.Env{method: :put, status: 201, body: fixture("put_user_201.json")}
+
+      %{method: :get, url: @plain_url <> "_users/org.couchdb.user:dch"} ->
+        %Tesla.Env{method: :get, status: 200, body: fixture("get_user_200.json")}
+
+      req ->
+        IO.inspect(req)
     end)
 
     :ok
@@ -44,112 +50,68 @@ defmodule SofaUserTest do
   end
 
   ## actual User tests
-  # GET doc
-  # test "GET /_users/missing returns {:error, :not_found}" do
-  #   response =
-  #     Sofa.connect!(@plain_sofa)
-  #     |> Sofa.DB.open!("_users")
-  #     |> Sofa.User.get("missing")
+  # PUT user
+  test "PUT /_users/org.couchdb.user:dch returns 201 Created & updated doc" do
+    user = Sofa.User.new("dch", "orange", ["pointy_hat", "users"])
 
-  #   assert {:error, :not_found} = response
-  # end
+    response =
+      Sofa.connect!(@plain_sofa)
+      |> Sofa.DB.open!("_users")
+      |> Sofa.User.put(user)
 
-  # test "GET /_users/nommy returns %Sofa.Doc{} struct" do
-  #   expected = fixture("get_doc_200.json") |> Sofa.Doc.from_map()
+    assert {:ok,
+            %Sofa.Doc{
+              attachments: %{},
+              body: %{
+                "name" => "dch",
+                "password" => "orange",
+                "roles" => ["pointy_hat", "users"]
+              },
+              id: "org.couchdb.user:dch",
+              rev: "1-296e5d3ca9b27b883afef165c53eab9e",
+              type: :user
+            }} = response
+  end
 
-  #   response =
-  #     Sofa.connect!(@user_sofa)
-  #     |> Sofa.DB.open!("_users")
-  #     |> Sofa.User.get("nommy")
+  # GET user
+  test "GET /_users/org.couchdb.user:dch returns 200 OK with correct body" do
+    response =
+      Sofa.connect!(@plain_sofa)
+      |> Sofa.DB.open!("_users")
+      |> Sofa.User.get("dch")
 
-  #   assert Map.equal?(expected, response)
-  # end
+    assert Map.equal?(response, %Sofa.Doc{
+             attachments: nil,
+             body: %{
+               "derived_key" => "36aa712d1e64c356feefca0e75f915d5b917a8f5",
+               "iterations" => 20000,
+               "name" => "dch",
+               "password_scheme" => "pbkdf2",
+               "roles" => ["pointy_hat", "users"],
+               "salt" => "1bde3b313a02cb8dac1c83e61e0e13e6"
+             },
+             id: "org.couchdb.user:dch",
+             rev: "1-296e5d3ca9b27b883afef165c53eab9e",
+             type: :user
+           })
+  end
 
-  # test "PUT /_users/new returns 201 Created and updated doc" do
-  #   new = Sofa.Doc.from_map(%{"_id" => "new", "shiny" => true})
+  test "password field is removed & converted to salted hashed form on GET after PUT" do
+    response =
+      Sofa.connect!(@plain_sofa)
+      |> Sofa.DB.open!("_users")
+      |> Sofa.User.get("dch")
 
-  #   response =
-  #     Sofa.connect!(@plain_sofa)
-  #     |> Sofa.DB.open!("_users")
-  #     |> Sofa.Doc.put(new)
-
-  #   assert {:ok, %Sofa.Doc{id: "new", rev: "1-leet"}} = response
-  # end
-
-  # test "PUT /_users/underscore returns 400 Bad Request" do
-  #   expected = fixture("put_doc_400.json")
-
-  #   invalid = Sofa.Doc.from_map(%{"_id" => "underscore", "_invalid" => true})
-
-  #   response =
-  #     Sofa.connect!(@plain_sofa)
-  #     |> Sofa.DB.open!("_users")
-  #     |> Sofa.Doc.put(invalid)
-
-  #   assert {:error, :bad_request} = response
-  # end
-
-  # test "PUT /_users/denied returns 401 Unauthorized" do
-  #   expected = fixture("put_doc_401.json")
-
-  #   denied = Sofa.Doc.new("denied")
-
-  #   response =
-  #     Sofa.connect!(@plain_sofa)
-  #     |> Sofa.DB.open!("_users")
-  #     |> Sofa.Doc.put(denied)
-
-  #   assert {:error, :unauthorized} = response
-  # end
-
-  # test "PUT /_users/invalid_user_doc returns 403 Forbidden" do
-  #   expected = fixture("put_doc_403.json")
-
-  #   invalid = Sofa.Doc.new("invalid_user_doc")
-
-  #   response =
-  #     Sofa.connect!(@plain_sofa)
-  #     |> Sofa.DB.open!("_users")
-  #     |> Sofa.Doc.put(invalid)
-
-  #   assert {:error, :forbidden} = response
-  # end
-
-  # test "PUT /_users/wrong_rev returns 409 Conflict" do
-  #   expected = fixture("put_doc_409.json")
-
-  #   wrong_rev =
-  #     Sofa.Doc.from_map(%{"_id" => "wrong_rev", "shiny" => true}) |> Map.put(:rev, "1-badcafe")
-
-  #   response =
-  #     Sofa.connect!(@plain_sofa)
-  #     |> Sofa.DB.open!("_users")
-  #     |> Sofa.Doc.put(wrong_rev)
-
-  #   assert {:error, :conflict} = response
-  # end
+    assert !Map.has_key?(response.body, "password")
+    assert Map.get(response.body, "password_scheme") == "pbkdf2"
+    assert is_integer(Map.get(response.body, "iterations"))
+  end
 
   ## helper function tests
   test "passwords are generated with requested length" do
     length = :crypto.rand_uniform(16, 64)
     assert length == String.length(Sofa.User.generate_random_secret(length))
   end
-
-  test "docs round trip cleanly from map->struct->map again" do
-    ["get_doc_200.json", "get_doc_with_attachment_stubs_200.json"]
-    |> Enum.map(fn t -> assert round_trip(fixture(t)) end)
-  end
-
-  defp round_trip(m),
-    do:
-      Map.equal?(
-        m,
-        m
-        |> Sofa.Doc.from_map()
-        |> Sofa.Doc.to_map()
-        |> Sofa.Doc.from_map()
-        |> Sofa.Doc.to_map()
-      )
 
   defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
 end
