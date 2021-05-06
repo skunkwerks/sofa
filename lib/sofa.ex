@@ -58,6 +58,8 @@ defmodule Sofa do
   # these default credentials are also used in CouchDB integration tests
   # because CouchDB3+ no longer accepts "admin party" blank credentials
   @default_uri "http://admin:passwd@localhost:5984/"
+  # a long timeout allows transient issues to be concealed by haproxy
+  @default_timeout 15_000
 
   @doc """
   Takes an optional parameter, the CouchDB uri, and returns a struct
@@ -114,7 +116,7 @@ defmodule Sofa do
     ]
 
     client = Tesla.client(middleware)
-    %Sofa{couch | client: client}
+    %Sofa{couch | client: client, timeout: @default_timeout}
   end
 
   @doc """
@@ -237,7 +239,7 @@ defmodule Sofa do
         ) ::
           {:error, any()} | {:ok, Sofa.t(), %Sofa.Response{}}
   def raw(
-        sofa = %Sofa{},
+        sofa = %Sofa{timeout: timeout},
         path \\ "",
         method \\ :get,
         query \\ [],
@@ -251,7 +253,8 @@ defmodule Sofa do
            method: method,
            query: query,
            headers: headers,
-           body: body
+           body: body,
+           opts: [adapter: [timeout: timeout]]
          ) do
       {:ok, resp = %{body: %{"error" => _error, "reason" => _reason}}} ->
         {:error,
