@@ -27,9 +27,6 @@ defmodule SofaUserTest do
 
       %{method: :get, url: @plain_url <> "_users/org.couchdb.user:dch"} ->
         %Tesla.Env{method: :get, status: 200, body: fixture("get_user_200.json")}
-
-      req ->
-        IO.inspect(req)
     end)
 
     :ok
@@ -84,7 +81,7 @@ defmodule SofaUserTest do
              attachments: nil,
              body: %{
                "derived_key" => "36aa712d1e64c356feefca0e75f915d5b917a8f5",
-               "iterations" => 20000,
+               "iterations" => 20_000,
                "name" => "dch",
                "password_scheme" => "pbkdf2",
                "roles" => ["pointy_hat", "users"],
