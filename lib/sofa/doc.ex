@@ -146,6 +146,13 @@ defmodule Sofa.Doc do
        }} ->
         {:ok, %Doc{doc | rev: rev}}
 
+      {:ok, _sofa,
+       %Sofa.Response{
+         status: 202,
+         body: %{"rev" => rev}
+       }} ->
+        {:ok, %Doc{doc | rev: rev}}
+
       {:error,
        %Sofa.Response{
          status: 400
@@ -197,19 +204,31 @@ defmodule Sofa.Doc do
       |> Map.put("_id", id)
       |> Map.put("_rev", rev)
       |> Map.put("_attachments", atts)
-      |> Map.put("type", type)
+      |> Map.put("type", coerce_to_json_string(type))
 
     # skip all top level keys with value nil
-    m = :maps.filter(&Sofa.Doc.drop_nil_values/2, m)
+    m = :maps.filter(&drop_nil_values/2, m)
     # merge with precedence taking from Struct side
     Map.merge(body, m)
   end
 
   @spec drop_nil_values(any, any) :: false | true
-  def drop_nil_values(_, v) do
+  defp drop_nil_values(_, v) do
     case v do
       nil -> false
       _ -> true
+    end
+  end
+
+  @spec coerce_to_json_string(atom) :: String.t() | nil
+  defp coerce_to_json_string(nil), do: nil
+  # _users docs (type: :user, id: "org.couchdb.user:...) are special
+  defp coerce_to_json_string(:user), do: "user"
+
+  defp coerce_to_json_string(atom) do
+    case Atom.to_string(atom) do
+      "Elixir." <> module -> module
+      _ -> nil
     end
   end
 
@@ -233,10 +252,12 @@ defmodule Sofa.Doc do
     # key beginning with "_" as they are restricted within CouchDB
     body =
       Map.drop(m, [
+        "__struct__",
         "_attachments",
         "_id",
         "_rev",
         "type",
+        :__struct__,
         :_attachments,
         :_id,
         :_rev
@@ -246,8 +267,32 @@ defmodule Sofa.Doc do
     # grab the rest we need them
     rev = Map.get(m, "_rev", nil)
     atts = Map.get(m, "_attachments", nil)
-    type = Map.get(m, "type", "nil") |> String.to_existing_atom()
+    type = Map.get(m, "type", "nil") |> coerce_to_elixir_type()
     %Sofa.Doc{attachments: atts, body: body, id: id, rev: rev, type: type}
+  end
+
+  @doc """
+  Coerces a CouchDB "type" field to an existing atom. It is assumed that there
+  will be a related Elixir Module Type of the same name. Elixir prefixes Module
+  names with Elixir. and then elides this in iex, tests, and elsewhere, but
+  here we need to make that explicit.
+
+  The "user" type is special-cased as it is already present in CouchDB /_users
+  database.
+
+  This function is expected to be paired up with Ecto Schemas to properly manage
+  the appropriate fields in your document body.
+  """
+  @spec coerce_to_elixir_type(String.t()) :: atom
+  defp coerce_to_elixir_type("user"), do: :user
+
+  defp coerce_to_elixir_type(type) do
+    # exception generated if no existing type is found
+    String.to_existing_atom("Elixir." <> type)
+  rescue
+    ArgumentError -> nil
+  else
+    found -> found
   end
 
   # this would be a Protocol for people to defimpl on their own structs

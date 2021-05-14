@@ -93,6 +93,20 @@ defmodule SofaUserTest do
            })
   end
 
+  test ":user type is correctly converted to `user` JSON string" do
+    doc = Sofa.User.new("jabberwocky")
+    map = Sofa.Doc.to_map(doc)
+
+    assert map["type"] == "user"
+  end
+
+  test ":user type round-trips through JSON correctly" do
+    doc = Sofa.User.new("jabberwocky")
+    map = Sofa.Doc.to_map(doc)
+
+    assert Map.equal?(doc, Sofa.Doc.from_map(map))
+  end
+
   test "password field is removed & converted to salted hashed form on GET after PUT" do
     response =
       Sofa.connect!(@plain_sofa)

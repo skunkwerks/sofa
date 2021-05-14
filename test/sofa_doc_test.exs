@@ -258,8 +258,8 @@ defmodule SofaDocTest do
   end
 
   test "from_map doesn't leak forbidden keys into doc.body" do
-    bad_keys = ["_rev", "_attachments", :_id, :_rev, :_attachments]
-    good_map = %{"_id" => "toasty", "key" => "important", "type" => "hellvetica"}
+    bad_keys = ["_rev", "_attachments", :_id, :_rev, :_attachments, :__struct__, "__struct__"]
+    good_map = %{"_id" => "toasty", "key" => "important", "type" => "Sofa"}
 
     pruned_map =
       Enum.reduce(bad_keys, good_map, fn x, a -> Map.put(a, x, "blah") end)
@@ -271,7 +271,27 @@ defmodule SofaDocTest do
              body: %{"key" => "important"},
              id: "toasty",
              rev: "blah",
-             type: :hellvetica
+             type: Sofa
+           })
+  end
+
+  test "to_map coerces Elixir module types to JSON strings" do
+    doc = Sofa.Doc.new("Hellvetica")
+    m = %{doc | type: Sofa.Doc} |> Sofa.Doc.to_map()
+    assert "Sofa.Doc" == m["type"]
+
+    assert !Map.has_key?(Sofa.Doc.to_map(doc), "type")
+  end
+
+  test "from_map coerces type strings to Elixir types" do
+    m = %{"_rev" => "1-leet", "_id" => "abc123", "type" => "Sofa.Doc"}
+
+    assert Map.equal?(Sofa.Doc.from_map(m), %Sofa.Doc{
+             attachments: nil,
+             body: %{},
+             id: "abc123",
+             rev: "1-leet",
+             type: Sofa.Doc
            })
   end
 
