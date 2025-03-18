@@ -24,8 +24,7 @@ Sofa makes no guarantees about specific HTTP modules, but should run
 with:
 
 - default Erlang `httpc` "no dependencies!"
-- https://ninenines.eu/docs/en/gun/2.0 "fast and furious"
-- https://github.com/puzza007/katipo "NIF, Schmiff"
+- Mint and Finch
 
 The package can be installed by adding `sofa` to your list of
 dependencies in `mix.exs`:
@@ -33,7 +32,6 @@ dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:gun, "~> 2.0.0-rc.1", override: true, optional: true},
     {:sofa, "~> 0.1.0"}
   ]
 end
@@ -46,7 +44,7 @@ import Config
 if config_env() == :test do
   config :tesla, adapter: Tesla.Mock
 else
-  config :tesla, adapter: Tesla.Adapter.Gun
+  config :tesla, adapter: Tesla.Adapter.Mint
 end
 ```
 
@@ -84,7 +82,6 @@ API transparently.
 - [ ] transparent Struct API
 - [ ] view:     `Sofa.View.*`
 - [ ] changes:  `Sofa.Changes.*`
-- [ ] katipo Tesla Adapter
 - [ ] timeouts for requests and inactivity
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
