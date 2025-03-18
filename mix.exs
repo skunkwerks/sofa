@@ -83,12 +83,22 @@ defmodule Sofa.MixProject do
       canonical: @hexdoc,
       source_ref: "#{tag}",
       source_url: @source,
-      extras: ["README.md", "CHANGELOG.md", "LICENSE", ".version"]
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"]
     ]
   end
 
   defp package do
     [
+      files: [
+        ".formatter.exs",
+        ".version",
+        "lib/",
+        "mix.exs",
+        "Makefile",
+        "CHANGELOG.md",
+        "LICENSE",
+        "README.md"
+      ],
       maintainers: ["Dave Cottlehuber"],
       licenses: ["BSD-2-Clause"],
       links: %{"github" => @source, "owner" => @owner}
