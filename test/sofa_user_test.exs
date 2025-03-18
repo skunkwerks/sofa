@@ -120,7 +120,7 @@ defmodule SofaUserTest do
 
   ## helper function tests
   test "passwords are generated with requested length" do
-    length = :crypto.rand_uniform(16, 64)
+    length = :rand.uniform(48) + 16
     assert length == String.length(Sofa.User.generate_random_secret(length))
   end
 
