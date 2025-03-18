@@ -202,7 +202,7 @@ defmodule SofaDocTest do
   end
 
   test "PUT /mydb/underscore returns 400 Bad Request" do
-    expected = fixture("put_doc_400.json")
+    fixture("put_doc_400.json")
 
     invalid = Sofa.Doc.from_map(%{"_id" => "underscore", "_invalid" => true})
 
@@ -215,7 +215,7 @@ defmodule SofaDocTest do
   end
 
   test "PUT /mydb/denied returns 401 Unauthorized" do
-    expected = fixture("put_doc_401.json")
+    fixture("put_doc_401.json")
 
     denied = Sofa.Doc.new("denied")
 
@@ -228,7 +228,7 @@ defmodule SofaDocTest do
   end
 
   test "PUT /mydb/invalid_user_doc returns 403 Forbidden" do
-    expected = fixture("put_doc_403.json")
+    fixture("put_doc_403.json")
 
     invalid = Sofa.Doc.new("invalid_user_doc")
 
@@ -241,7 +241,7 @@ defmodule SofaDocTest do
   end
 
   test "PUT /mydb/wrong_rev returns 409 Conflict" do
-    expected = fixture("put_doc_409.json")
+    fixture("put_doc_409.json")
 
     wrong_rev =
       Sofa.Doc.from_map(%{"_id" => "wrong_rev", "shiny" => true}) |> Map.put(:rev, "1-badcafe")
