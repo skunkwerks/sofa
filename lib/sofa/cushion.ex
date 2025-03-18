@@ -11,14 +11,14 @@ defmodule Sofa.Cushion do
   This is necessary because proxies, clients, HTTP1* and HTTP2 all disagree
   about whether headers should be upper, lower, camel, snake, or wtf case.
 
-  Server : CouchDB/3.1.1 (Erlang OTP/22)
-  X-Couch-Request-Id : f5b74b7038
-  X-Couchdb-Body-Time : 0
-  Cache-Control : must-revalidate
-  Content-Length : 443
-  Content-Type : application/json
-  Date : Sun, 25 Apr 2021 18:43:36 GMT
-  Etag : "4-322add00c33cab838bf9d7909f18d4f5"
+      Server : CouchDB/3.1.1 (Erlang OTP/22)
+      X-Couch-Request-Id : f5b74b7038
+      X-Couchdb-Body-Time : 0
+      Cache-Control : must-revalidate
+      Content-Length : 443
+      Content-Type : application/json
+      Date : Sun, 25 Apr 2021 18:43:36 GMT
+      Etag : "4-322add00c33cab838bf9d7909f18d4f5"
 
   """
   @spec untaint_headers(Tesla.Env.headers()) :: map()

@@ -83,7 +83,7 @@ defmodule Sofa.MixProject do
       canonical: @hexdoc,
       source_ref: "#{tag}",
       source_url: @source,
-      extras: ["README.md", "CHANGELOG.md", "LICENSE"]
+      extras: ["README.md", "CHANGELOG.md", "LICENSE", ".version"]
     ]
   end
 
@@ -100,7 +100,7 @@ defmodule Sofa.MixProject do
     [
       {:credo, "~> 1.3", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
-      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.3", only: :dev, runtime: false},
       {:jason, "~> 1.4"},
       {:mint, "~> 1.7"},
       {:tesla, "~> 1.14"}

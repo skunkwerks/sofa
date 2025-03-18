@@ -3,11 +3,11 @@ defmodule Sofa.Doc do
   Documentation for `Sofa.Doc`, a test-driven idiomatic Apache CouchDB client.
 
   > If the only tool you have is CouchDB, then
-  > everything looks like {:ok, :relax}
+  > everything looks like `{:ok, :relax}`
 
   ## Examples
 
-  iex> Sofa.Doc.new()
+      iex> Sofa.Doc.new()
 
   """
 
@@ -50,8 +50,8 @@ defmodule Sofa.Doc do
   @doc """
   Check if doc exists via `HEAD /:db/:doc` and returns either:
 
-  - {:error, not_found} # doc doesn't exist
-  - {:ok, %Sofa.Doc{}} # doc exists and has metadata
+  - `{:error, not_found}` # doc doesn't exist
+  - `{:ok, %Sofa.Doc{}}` # doc exists and has metadata
   """
   @spec exists(Sofa.t(), String.t()) :: {:error, any()} | {:ok, %{}}
   def exists(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
@@ -181,12 +181,14 @@ defmodule Sofa.Doc do
   end
 
   @doc """
-  Converts internal %Sofa.Doc{} format to CouchDB-native JSON-friendly map
+  Converts internal `%Sofa.Doc{}` format to CouchDB-native JSON-friendly map
 
   ## Examples
 
-      iex> %Sofa.Doc{id: "smol", rev: "1-cute", body: %{"yes" => true}} |> to_map()
-      %{ "_id" => "smol", "_rev" => "1-cute", "yes" => true}
+        iex> %Sofa.Doc{id: "smol", rev: "1-cute", body: %{"yes" => true}}
+          |> to_map()
+
+        %{ "_id" => "smol", "_rev" => "1-cute", "yes" => true}
   """
   @spec to_map(t()) :: map()
   def to_map(
@@ -234,18 +236,20 @@ defmodule Sofa.Doc do
   end
 
   @doc """
-  Converts CouchDB-native JSON-friendly map to internal %Sofa.Doc{} format
+  Converts CouchDB-native JSON-friendly map to internal `%Sofa.Doc{}` format
 
   ## Examples
 
-      iex> %{ "_id" => "smol", "_rev" => "1-cute", "yes" => true} |> from_map()
-      %Sofa.Doc{
-        attachments: nil,
-        body: %{"yes" => true},
-        id: "smol",
-        rev: "1-cute",
-        type: nil
-      }
+        iex> %{ "_id" => "smol", "_rev" => "1-cute", "yes" => true}
+            |> from_map()
+
+        %Sofa.Doc{
+          attachments: nil,
+          body: %{"yes" => true},
+          id: "smol",
+          rev: "1-cute",
+          type: nil
+        }
   """
   @spec from_map(map()) :: t()
   def from_map(m = %{"_id" => id}) when not is_struct(m) do

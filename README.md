@@ -1,8 +1,6 @@
-## Sofa: idiomatic Elixir module for [Apache CouchDB]
+# Sofa
 
-Sofa is yet another Elixir CouchDB client. Its sole claim to fame is
-that it's written by a rather average developer with no delusions of
-grandeur. You should have no trouble understanding it.
+A straightforwards, idiomatic [CouchDB] client.
 
 The intention is to provide an idiomatic Elixir client, that can play
 nicely with Ecto, Maps, and in particular, Structs and Protocols. You
@@ -48,7 +46,7 @@ else
 end
 ```
 
-## Docs, Functionality and Road Map
+## Docs
 
 - [hexdocs] as usual has all the goodies
 - the [CouchDB API] should map very closely to Sofa
@@ -66,6 +64,8 @@ CouchDB API:
     with. We've tried to keep it as close to the [CouchDB API] as possible,
     so aside from `id`, `rev`, and the `attachments` stubs, all the
     JSON is contained in a `body` and Sofa keeps out of your way.
+
+## Road Map
 
 While not yet implemented, Sofa wants to support "native" Elixir struct
 usage, where you implement the Protocol to convert your custom Struct
@@ -145,7 +145,7 @@ iex> db = Sofa.DB.open!("mydb")
     >
 ```
 
-### Basic Doc Usage
+### Doc Usage
 
 There shouldn't be any surprises here - an Elixir `Map %{}` becomes the
 `body` of the `%Sofa.Doc{}` struct, and the usual CouchDB internal
@@ -214,22 +214,19 @@ iex> db = Sofa.init("http://admin:passwd@localhost:5984/")
  }}
 ```
 
-## Development and Testing
+## Contributing
 
 If raw mode can't do it, send a PR, and we'll `make it so`. If you find
 yourself reaching for raw mode often, consider a PR that extends Sofa
 itself?
 
-Sofa should pass reasonable credo, and also respect dialyzer. If you run
-`make lint` you may wish to softlink `./.mix/plts` somewhere permanent, so
-that your PLT creation is preserved across runs.
+Sofa should pass credo, and also respect dialyzer, via `make lint`.
 
 ## Thanks
 
-- the CouchDB team, who have been a part of my life for more than a
-    decade. Relax.
+To the CouchDB team, a part of my life for more than a decade. Relax.
 
 [hex]: https://hex.pm/packages/sofa
-[Apache CouchDB]: https://couchdb.apache.org/
+[CouchDB]: https://couchdb.apache.org/
 [hexdocs]: https://hexdocs.pm/sofa
 [CouchDB API]: https://docs.couchdb.org/

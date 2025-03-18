@@ -3,20 +3,21 @@ defmodule Sofa do
   Documentation for `Sofa`, a test-driven idiomatic Apache CouchDB client.
 
   > If the only tool you have is CouchDB, then
-  > everything looks like {:ok, :relax}
+  > everything looks like `{:ok, :relax}`
 
   ## Examples
 
-  iex> Sofa.init() |> Sofa.client() |> Sofa.connect!()
-  %{
-    "couchdb" => "Welcome",
-    "features" => ["access-ready", "partitioned", "pluggable-storage-engines",
-      "reshard", "scheduler"],
-    "git_sha" => "ce596c65d",
-    "uuid" => "59c032d3a6adcd5b44315137a124bf69",
-    "vendor" => %{"name" => "FreeBSD"},
-    "version" => "3.1.1"
-  }
+      iex> Sofa.init() |> Sofa.client() |> Sofa.connect!()
+
+      %{
+        "couchdb" => "Welcome",
+        "features" => ["access-ready", "partitioned", "pluggable-storage-engines",
+          "reshard", "scheduler"],
+        "git_sha" => "ce596c65d",
+        "uuid" => "59c032d3a6adcd5b44315137a124bf69",
+        "vendor" => %{"name" => "FreeBSD"},
+        "version" => "3.1.1"
+      }
   """
 
   @derive {Inspect, except: [:auth]}
@@ -66,29 +67,30 @@ defmodule Sofa do
   containing the usual CouchDB server properties. The URI may be given
   as a string or as a %URI struct.
 
-  This should be piped into Sofa.client/1 to create the HTTP client,
+  This should be piped into `Sofa.client/1` to create the HTTP client,
   which is stored inside the struct with correct authentication information.
 
   ## Examples
 
-  iex> Sofa.init("https://very:Secure@foreignho.st:6984/")
-  %Sofa{
-    auth: "very:Secure",
-    features: nil,
-    uri: %URI{
-      authority: "very:Secure@foreignho.st:6984",
-      fragment: nil,
-      host: "foreignho.st",
-      path: "/",
-      port: 6984,
-      query: nil,
-      scheme: "https",
-      userinfo: "very:Secure"
-    },
-    uuid: nil,
-    vendor: nil,
-    version: nil
-  }
+      iex> Sofa.init("https://very:Secure@foreignho.st:6984/")
+
+      %Sofa{
+        auth: "very:Secure",
+        features: nil,
+        uri: %URI{
+          authority: "very:Secure@foreignho.st:6984",
+          fragment: nil,
+          host: "foreignho.st",
+          path: "/",
+          port: 6984,
+          query: nil,
+          scheme: "https",
+          userinfo: "very:Secure"
+        },
+        uuid: nil,
+        vendor: nil,
+        version: nil
+      }
 
   """
   @spec init(uri :: String.t() | URI.t()) :: Sofa.t()
@@ -123,16 +125,17 @@ defmodule Sofa do
   Returns user & password credentials extracted from a typical %URI{} userinfo
   field, as a Tesla-compatible authorization header. Currently only supports
   BasicAuth user:password combination.
+
   ## Examples
 
-  iex> Sofa.auth_info("admin:password")
-  %{username: "admin", password: "password"}
+      iex> Sofa.auth_info("admin:password")
+      %{username: "admin", password: "password"}
 
-  iex> Sofa.auth_info("blank:")
-  %{username: "blank", password: ""}
+      iex> Sofa.auth_info("blank:")
+      %{username: "blank", password: ""}
 
-  iex> Sofa.auth_info("garbage")
-  %{}
+      iex> Sofa.auth_info("garbage")
+      %{}
   """
   @spec auth_info(nil | String.t()) :: %{} | %{user: String.t(), password: String.t()}
   def auth_info(nil), do: %{}

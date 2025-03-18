@@ -3,7 +3,7 @@ defmodule Sofa.User do
   Documentation for `Sofa.User`, a test-driven idiomatic Apache CouchDB client.
 
   > If the only tool you have is CouchDB, then
-  > everything looks like {:ok, :relax}
+  > everything looks like `{:ok, :relax}`
 
   The User module provides simple wrappers around the usual Sofa.DB and
   Sofa.Doc functions, specifically for the `_users` DB.
@@ -22,23 +22,25 @@ defmodule Sofa.User do
 
     # https://docs.couchdb.org/en/stable/intro/security.html?highlight=_users#creating-a-new-user
 
-  { _id: "org.couchdb.user:jan",
-  "name": "jan",
-  "password": "apple",
-  "roles": ["chair"],
-  "type": "user"
-  }
+      { _id: "org.couchdb.user:jan",
+        "name": "jan",
+        "password": "apple",
+        "roles": ["chair"],
+        "type": "user"
+      }
 
 
   ## Examples
-  iex> Sofa.User.new("jan", "apple", ["pointy_hat", "users"])
-  %Sofa.Doc{
-    attachments: %{},
-    body: %{"name" => "jan", "password" => "apple", "roles" => ["pointy_hat", "users"]},
-    id: "org.couchdb.user:jan",
-    rev: nil,
-    type: :user
-  }
+
+      iex> Sofa.User.new("jan", "apple", ["pointy_hat", "users"])
+
+      %Sofa.Doc{
+        attachments: %{},
+        body: %{"name" => "jan", "password" => "apple", "roles" => ["pointy_hat", "users"]},
+        id: "org.couchdb.user:jan",
+        rev: nil,
+        type: :user
+      }
 
   """
   @spec new(String.t(), String.t(), [String.t()]) :: Sofa.Doc.t()
@@ -101,8 +103,8 @@ defmodule Sofa.User do
   @doc """
   GET doc and returns standard HTTP status codes, or the user doc
 
-  - {:error, :not_found}  # doc doesn't exist
-  - %Sofa.Doc{}           # doc exists and has metadata
+  - `{:error, :not_found}` - doc doesn't exist
+  - `%Sofa.Doc{}` - doc exists and has metadata
   """
   @spec get(Sofa.t(), String.t()) :: {:error, any()} | Sofa.Doc.t()
   def get(sofa = %Sofa{}, name) when is_binary(name) do

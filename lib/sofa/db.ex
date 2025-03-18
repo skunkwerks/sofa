@@ -3,43 +3,45 @@ defmodule Sofa.DB do
   Documentation for `Sofa.DB`, a test-driven idiomatic Apache CouchDB client.
 
   > If the only tool you have is CouchDB, then
-  > everything looks like {:ok, :relax}
+  > everything looks like `{:ok, :relax}`
 
   ## Examples
 
-  iex>  sofa = Sofa.init("http://admin:passwd@localhost:5984/") |> Sofa.client() |> Sofa.connect!()
-      #Sofa<"...">
+      iex>  sofa = Sofa.init("http://admin:passwd@localhost:5984/")
+            |> Sofa.client()
+            |> Sofa.connect!()
+          #Sofa<"...">
 
-  iex> Sofa.DB.create(sofa, "testy")
-      {:ok,
-      #Sofa<
-        client: %Tesla.Client{},
-        database: "testy7",
-        uri: %URI{},
-        ...
-      >,
-      %Sofa.Response{
-        body: %{"ok" => true},
-        headers: %{
-          cache_control: "must-revalidate",
-          content_length: 95,
-          content_type: "application/json",
-          couch_body_time: 0,
-          couch_request_id: "aa6cc50741",
-          date: "Sun, 25 Apr 2021 20:04:34 GMT",
-          server: "CouchDB/3.1.1 (Erlang OTP/22)"
-        },
-        method: :put,
-        query: [],
-        status: 201,
-        url: "http://localhost:5984/testy7"
-      }}
+      iex> Sofa.DB.create(sofa, "testy")
+          {:ok,
+          #Sofa<
+            client: %Tesla.Client{},
+            database: "testy7",
+            uri: %URI{},
+            ...
+          >,
+          %Sofa.Response{
+            body: %{"ok" => true},
+            headers: %{
+              cache_control: "must-revalidate",
+              content_length: 95,
+              content_type: "application/json",
+              couch_body_time: 0,
+              couch_request_id: "aa6cc50741",
+              date: "Sun, 25 Apr 2021 20:04:34 GMT",
+              server: "CouchDB/3.1.1 (Erlang OTP/22)"
+            },
+            method: :put,
+            query: [],
+            status: 201,
+            url: "http://localhost:5984/testy7"
+          }}
 
-  iex> Sofa.DB.open!(sofa, "testy")
-    #Sofa<
-      database: "testy",
-      client: %Tesla.Client{},
-    ...>
+      iex> Sofa.DB.open!(sofa, "testy")
+        #Sofa<
+          database: "testy",
+          client: %Tesla.Client{},
+        ...>
 
   """
 
@@ -111,7 +113,7 @@ defmodule Sofa.DB do
 
   @doc """
   Open DB. Checks if supplied credentials have access to the DB, and returns
-  updated %Sofa{} struct with DB. Ideal for subsequent use to read/write Docs.
+  updated `%Sofa{}` struct with DB. Ideal for subsequent use to read/write Docs.
   """
   @spec open(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
   def open(sofa = %Sofa{}, db) when is_binary(db) do
