@@ -1,23 +1,24 @@
 defmodule Sofa.MixProject do
   use Mix.Project
 
+  @source "https://github.com/skunkwerks/sofa"
+  @owner "https://skunkwerks.at/"
+  @hexdoc "https://hexdocs.pm/sofa"
   def project do
     [tag, version] = version()
 
     [
       app: :sofa,
-      version: tag,
-      id: version,
-      description: "Sofa " <> version,
-      elixir: "~> 1.17",
-      start_permanent: Mix.env() == :prod,
+      deps: deps(),
+      description: "Sofa, an idiomatic relaxing CouchDB client " <> version,
       # http://erlang.org/doc/man/dialyzer.html
-      dialyzer: [
-        flags: ["-Wunmatched_returns", :error_handling, :race_conditions],
-        list_unused_filters: true,
-        plt_local_path: System.user_home!() <> "/.mix/plts/sofa"
-      ],
-      deps: deps()
+      dialyzer: dialyzer(),
+      docs: docs(),
+      elixir: "~> 1.17",
+      id: version,
+      package: package(),
+      start_permanent: Mix.env() == :prod,
+      version: tag
     ]
   end
 
@@ -25,17 +26,6 @@ defmodule Sofa.MixProject do
     [
       extra_applications: [:logger],
       mod: {Sofa.Application, []}
-    ]
-  end
-
-  # Run "mix help deps" to learn about dependencies.
-  defp deps do
-    [
-      {:credo, "~> 1.3", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.1", only: :dev, runtime: false},
-      {:jason, "~> 1.4"},
-      {:mint, "~> 1.7"},
-      {:tesla, "~> 1.14"}
     ]
   end
 
@@ -75,5 +65,45 @@ defmodule Sofa.MixProject do
     File.write!(".version", "#{tag_version}: #{full_version}")
 
     [tag_version, full_version]
+  end
+
+  defp dialyzer do
+    [
+      flags: ["-Wunmatched_returns", :error_handling],
+      list_unused_filters: true,
+      plt_local_path: System.user_home!() <> "/.mix/plts/sofa"
+    ]
+  end
+
+  defp docs do
+    [tag, _version] = version()
+
+    [
+      main: "readme",
+      canonical: @hexdoc,
+      source_ref: "#{tag}",
+      source_url: @source,
+      extras: ["README.md", "LICENSE"]
+    ]
+  end
+
+  defp package do
+    [
+      maintainers: ["Dave Cottlehuber"],
+      licenses: ["BSD-2-Clause"],
+      links: %{"github" => @source, "owner" => @owner}
+    ]
+  end
+
+  # Run "mix help deps" to learn about dependencies.
+  defp deps do
+    [
+      {:credo, "~> 1.3", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.1", only: :dev, runtime: false},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
+      {:jason, "~> 1.4"},
+      {:mint, "~> 1.7"},
+      {:tesla, "~> 1.14"}
+    ]
   end
 end
