@@ -9,7 +9,7 @@ defmodule Sofa.MixProject do
       version: tag,
       id: version,
       description: "Sofa " <> version,
-      elixir: "~> 1.10",
+      elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       # http://erlang.org/doc/man/dialyzer.html
       dialyzer: [
@@ -31,12 +31,11 @@ defmodule Sofa.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:idna, "~> 6.1", optional: true},
       {:credo, "~> 1.3", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
-      {:gun, "~> 2.0.0-rc.1", override: true, optional: true},
-      {:jason, "~> 1.2"},
-      {:tesla, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:mint, "~> 1.7"},
+      {:tesla, "~> 1.14"}
     ]
   end
 
