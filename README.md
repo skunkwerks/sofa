@@ -230,6 +230,6 @@ that your PLT creation is preserved across runs.
     decade. Relax.
 
 [hex]: https://hex.pm/packages/sofa
-[Apache CouchDB]: https://couchdb.org/
+[Apache CouchDB]: https://couchdb.apache.org/
 [hexdocs]: https://hexdocs.pm/sofa
 [CouchDB API]: https://docs.couchdb.org/

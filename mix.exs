@@ -83,7 +83,7 @@ defmodule Sofa.MixProject do
       canonical: @hexdoc,
       source_ref: "#{tag}",
       source_url: @source,
-      extras: ["README.md", "LICENSE"]
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"]
     ]
   end
 
