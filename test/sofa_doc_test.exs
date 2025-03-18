@@ -3,9 +3,6 @@ defmodule SofaDocTest do
 
   @plain_url "http://localhost:5984/"
   @plain_sofa Sofa.init(@plain_url) |> Sofa.client()
-  @admin_password "admin:passwd"
-  @admin_url "http://" <> @admin_password <> "@localhost:5984/"
-  @admin_sofa Sofa.init(@admin_url) |> Sofa.client()
   @etag_header {"ETag", ~s("1-leet")}
   @ifmatch_header {"If-Match", ~s("1-leet")}
 

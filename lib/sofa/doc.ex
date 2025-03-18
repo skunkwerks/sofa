@@ -21,10 +21,11 @@ defmodule Sofa.Doc do
             type: nil
 
   @type t :: %__MODULE__{
-          attachments: %{},
-          id: binary,
-          rev: nil | binary,
-          type: atom
+          attachments: map(),
+          body: map(),
+          id: binary(),
+          rev: nil | binary(),
+          type: atom() | nil
         }
 
   alias Sofa.Doc
@@ -33,7 +34,7 @@ defmodule Sofa.Doc do
   Creates a new (empty) document
   """
 
-  @spec new(String.t() | %{}) :: %Sofa.Doc{}
+  @spec new(String.t() | %{}) :: t()
   def new(id) when is_binary(id) do
     %Sofa.Doc{id: id, body: %{}}
   end
@@ -47,7 +48,7 @@ defmodule Sofa.Doc do
   end
 
   @doc """
-  Check if doc exists via `HEAD /:db/:doc and returns either:
+  Check if doc exists via `HEAD /:db/:doc` and returns either:
 
   - {:error, not_found} # doc doesn't exist
   - {:ok, %Sofa.Doc{}} # doc exists and has metadata
@@ -74,7 +75,7 @@ defmodule Sofa.Doc do
   end
 
   @doc """
-  Check if doc exists via `HEAD /:db/:doc and returns either true or false
+  Check if doc exists via `HEAD /:db/:doc` and returns either true or false
   """
   @spec exists?(Sofa.t(), String.t()) :: false | true
   def exists?(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
@@ -97,7 +98,7 @@ defmodule Sofa.Doc do
   - {:error, :not_found}  # doc doesn't exist, or similar HTTP status
   - %Sofa.Doc{}           # doc exists and has metadata
   """
-  @spec get(Sofa.t(), String.t()) :: {:error, any()} | Sofa.Doc.t()
+  @spec get(Sofa.t(), String.t()) :: {:error, any()} | t()
   def get(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
     case Sofa.raw(sofa, db <> "/" <> doc, :get) do
       {:ok, _sofa,
@@ -136,8 +137,8 @@ defmodule Sofa.Doc do
   @doc """
   Optimistically write/update doc assuming rev matches
   """
-  @spec put(Sofa.t(), Sofa.Doc.t()) :: {:ok, Sofa.Doc.t()} | {:error, any()}
-  def put(sofa = %Sofa{database: db}, doc = %Sofa.Doc{id: id, rev: rev}) do
+  @spec put(Sofa.t(), t()) :: {:ok, t()} | {:error, any()}
+  def put(sofa = %Sofa{database: db}, doc = %Sofa.Doc{id: id, rev: _rev}) do
     case Sofa.raw(sofa, db <> "/" <> id, :put, [], to_map(doc)) do
       {:ok, _sofa,
        %Sofa.Response{
@@ -187,7 +188,7 @@ defmodule Sofa.Doc do
       iex> %Sofa.Doc{id: "smol", rev: "1-cute", body: %{"yes" => true}} |> to_map()
       %{ "_id" => "smol", "_rev" => "1-cute", "yes" => true}
   """
-  @spec to_map(%Sofa.Doc{}) :: map()
+  @spec to_map(t()) :: map()
   def to_map(
         doc = %Sofa.Doc{
           body: body,
@@ -246,7 +247,7 @@ defmodule Sofa.Doc do
         type: nil
       }
   """
-  @spec from_map(map()) :: Sofa.Doc.t()
+  @spec from_map(map()) :: t()
   def from_map(m = %{"_id" => id}) when not is_struct(m) do
     # remove all keys that are defined already in the struct, and any
     # key beginning with "_" as they are restricted within CouchDB
@@ -284,9 +285,9 @@ defmodule Sofa.Doc do
   the appropriate fields in your document body.
   """
   @spec coerce_to_elixir_type(String.t()) :: atom
-  defp coerce_to_elixir_type("user"), do: :user
+  def coerce_to_elixir_type("user"), do: :user
 
-  defp coerce_to_elixir_type(type) do
+  def coerce_to_elixir_type(type) do
     # exception generated if no existing type is found
     String.to_existing_atom("Elixir." <> type)
   rescue
@@ -332,7 +333,7 @@ defmodule Sofa.Doc do
   @doc """
   delete doc
   """
-  @spec delete(Sofa.t(), Sofa.Doc.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
+  @spec delete(Sofa.t(), t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
   def delete(sofa = %Sofa{database: db}, %Sofa.Doc{id: id, rev: rev})
       when is_binary(db) and is_binary(rev) do
     case Sofa.raw(sofa, db <> "/" <> id, :delete, [], "", [{"If-Match", rev}]) do

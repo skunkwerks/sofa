@@ -237,7 +237,7 @@ defmodule Sofa do
           Tesla.Env.body(),
           Tesla.Env.headers()
         ) ::
-          {:error, any()} | {:ok, Sofa.t(), %Sofa.Response{}}
+          {:error, any()} | {:ok, Sofa.t(), Sofa.Response.t()}
   def raw(
         sofa = %Sofa{timeout: timeout},
         path \\ "",
@@ -293,7 +293,7 @@ defmodule Sofa do
           Tesla.Env.method(),
           Tesla.Env.opts(),
           Tesla.Env.body()
-        ) :: %Sofa.Response{}
+        ) :: Sofa.Response.t()
   def raw!(sofa = %Sofa{}, path \\ "", method \\ :get, query \\ [], body \\ %{}) do
     case raw(sofa, path, method, query, body) do
       {:ok, %Sofa{}, response = %Sofa.Response{}} ->

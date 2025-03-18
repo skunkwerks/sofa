@@ -26,6 +26,15 @@ defmodule Sofa.Response do
   }
   """
 
+  @type t :: %__MODULE__{
+          body: map() | nil,
+          status: integer() | nil,
+          method: atom(),
+          query: list() | binary(),
+          headers: map(),
+          url: binary()
+        }
+
   @enforce_keys [:status, :method, :body]
   defstruct body: %{},
             status: nil,

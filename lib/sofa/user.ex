@@ -16,7 +16,6 @@ defmodule Sofa.User do
 
   # the doc _id prefix used everywhere by CouchDB
   @prefix "org.couchdb.user:"
-  @doc_type "user"
   @user_db "_users"
   @doc """
   Create a new _user Sofa.Doc with the usual attributes per
