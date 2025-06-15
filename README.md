@@ -136,7 +136,7 @@ iex> sofa = Sofa.init("http://admin:passwd@localhost:5984/")
     version: "3.2.0",
     ...
 # re-use the same struct, and confirm we can access a specific database
-iex> db = Sofa.DB.open!("mydb")
+iex> db = Sofa.DB.open!(sofa, "mydb")
     #Sofa<
     client: %Tesla.Client{ ... },
     database: "mydb",
@@ -154,7 +154,7 @@ fields are available as additional atom fields off the struct:
 ```elixir
 iex>  doc = %{"_id" => "smol", "cute" => true} |> Sofa.Doc.from_map()
     %Sofa.Doc{
-    attachments: nil,
+    attachments: %{},
     body: %{
         "cute" => true
     },

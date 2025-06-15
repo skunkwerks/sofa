@@ -57,7 +57,8 @@ defmodule Sofa.User do
               _ -> password
             end,
           "roles" => roles
-        }
+        },
+        attachments: %{}
     }
   end
 

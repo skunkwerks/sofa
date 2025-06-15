@@ -78,7 +78,7 @@ defmodule SofaUserTest do
       |> Sofa.User.get("dch")
 
     assert Map.equal?(response, %Sofa.Doc{
-             attachments: nil,
+             attachments: %{},
              body: %{
                "derived_key" => "36aa712d1e64c356feefca0e75f915d5b917a8f5",
                "iterations" => 20_000,

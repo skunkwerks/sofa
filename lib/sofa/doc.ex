@@ -36,15 +36,15 @@ defmodule Sofa.Doc do
 
   @spec new(String.t() | %{}) :: t()
   def new(id) when is_binary(id) do
-    %Sofa.Doc{id: id, body: %{}}
+    %Sofa.Doc{id: id, body: %{}, attachments: %{}}
   end
 
   def new(%{id: id}) when is_binary(id) do
-    %Sofa.Doc{id: id, body: %{}}
+    %Sofa.Doc{id: id, body: %{}, attachments: %{}}
   end
 
   def new(%{id: id, body: body}) when is_binary(id) and is_map(body) do
-    %Sofa.Doc{id: id, body: body}
+    %Sofa.Doc{id: id, body: body, attachments: %{}}
   end
 
   @doc """

@@ -256,7 +256,7 @@ defmodule SofaDocTest do
 
   test "from_map doesn't leak forbidden keys into doc.body" do
     bad_keys = ["_rev", "_attachments", :_id, :_rev, :_attachments, :__struct__, "__struct__"]
-    good_map = %{"_id" => "toasty", "key" => "important", "type" => "Sofa"}
+    good_map = %{"_id" => "toasty", "key" => "important", "type" => "Sofa", attachments: %{}}
 
     pruned_map =
       Enum.reduce(bad_keys, good_map, fn x, a -> Map.put(a, x, "blah") end)
@@ -264,7 +264,7 @@ defmodule SofaDocTest do
       |> Map.from_struct()
 
     assert Map.equal?(pruned_map, %{
-             attachments: "blah",
+             attachments: %{},
              body: %{"key" => "important"},
              id: "toasty",
              rev: "blah",
@@ -284,7 +284,7 @@ defmodule SofaDocTest do
     m = %{"_rev" => "1-leet", "_id" => "abc123", "type" => "Sofa.Doc"}
 
     assert Map.equal?(Sofa.Doc.from_map(m), %Sofa.Doc{
-             attachments: nil,
+             attachments: %{},
              body: %{},
              id: "abc123",
              rev: "1-leet",
