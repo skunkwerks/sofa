@@ -206,7 +206,7 @@ defmodule Sofa.Doc do
       %{}
       |> Map.put("_id", id)
       |> Map.put("_rev", rev)
-      |> Map.put("_attachments", atts)
+      |> maybe_put_attachments(atts)
       |> Map.put("type", coerce_to_json_string(type))
 
     # skip all top level keys with value nil
@@ -214,6 +214,12 @@ defmodule Sofa.Doc do
     # merge with precedence taking from Struct side
     Map.merge(body, m)
   end
+
+  # Helper function to conditionally add attachments
+  @spec maybe_put_attachments(map(), map() | nil) :: map()
+  defp maybe_put_attachments(map, atts) when atts == %{}, do: map
+  defp maybe_put_attachments(map, atts) when is_nil(atts), do: map
+  defp maybe_put_attachments(map, atts), do: Map.put(map, "_attachments", atts)
 
   @spec drop_nil_values(any, any) :: false | true
   defp drop_nil_values(_, v) do
@@ -271,7 +277,13 @@ defmodule Sofa.Doc do
 
     # grab the rest we need them
     rev = Map.get(m, "_rev", nil)
-    atts = Map.get(m, "_attachments", nil)
+
+    atts =
+      case Map.get(m, "_attachments", %{}) do
+        atts when is_map(atts) -> atts
+        _ -> %{}
+      end
+
     type = Map.get(m, "type", "nil") |> coerce_to_elixir_type()
     %Sofa.Doc{attachments: atts, body: body, id: id, rev: rev, type: type}
   end
@@ -355,6 +367,116 @@ defmodule Sofa.Doc do
 
       {:ok, _sofa, _resp} ->
         :ok
+    end
+  end
+
+  @doc """
+  Get attachment content from a document
+  """
+  @spec get_attachment(Sofa.t(), String.t(), String.t()) :: {:ok, binary()} | {:error, any()}
+  def get_attachment(sofa = %Sofa{database: db}, doc_id, attachment_name)
+      when is_binary(doc_id) and is_binary(attachment_name) do
+    path = db <> "/" <> doc_id <> "/" <> attachment_name
+
+    case Sofa.raw(sofa, path, :get) do
+      {:ok, _sofa, %Sofa.Response{status: 200, body: body}} ->
+        {:ok, body}
+
+      {:ok, _sofa, %Sofa.Response{status: 404}} ->
+        {:error, :not_found}
+
+      {:error, %Sofa.Response{status: 401}} ->
+        {:error, :unauthorized}
+
+      {:error, %Sofa.Response{status: 403}} ->
+        {:error, :forbidden}
+    end
+  end
+
+  @doc """
+  Put attachment to a document
+  """
+  @spec put_attachment(Sofa.t(), String.t(), String.t(), String.t(), binary(), String.t()) ::
+          {:ok, String.t()} | {:error, any()}
+  def put_attachment(sofa = %Sofa{database: db}, doc_id, attachment_name, content_type, data, rev)
+      when is_binary(doc_id) and is_binary(attachment_name) and is_binary(content_type) and
+             is_binary(data) and is_binary(rev) do
+    path = db <> "/" <> doc_id <> "/" <> attachment_name
+
+    headers = [
+      {"Content-Type", content_type},
+      {"If-Match", rev}
+    ]
+
+    case Sofa.raw(sofa, path, :put, [], data, headers) do
+      {:ok, _sofa, %Sofa.Response{status: 201, body: %{"rev" => new_rev}}} ->
+        {:ok, new_rev}
+
+      {:ok, _sofa, %Sofa.Response{status: 202, body: %{"rev" => new_rev}}} ->
+        {:ok, new_rev}
+
+      {:error, %Sofa.Response{status: 400}} ->
+        {:error, :bad_request}
+
+      {:error, %Sofa.Response{status: 401}} ->
+        {:error, :unauthorized}
+
+      {:error, %Sofa.Response{status: 403}} ->
+        {:error, :forbidden}
+
+      {:error, %Sofa.Response{status: 404}} ->
+        {:error, :not_found}
+
+      {:error, %Sofa.Response{status: 409}} ->
+        {:error, :conflict}
+    end
+  end
+
+  @doc """
+  Delete attachment from a document
+  """
+  @spec delete_attachment(Sofa.t(), String.t(), String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, any()}
+  def delete_attachment(sofa = %Sofa{database: db}, doc_id, attachment_name, rev)
+      when is_binary(doc_id) and is_binary(attachment_name) and is_binary(rev) do
+    path = db <> "/" <> doc_id <> "/" <> attachment_name
+    headers = [{"If-Match", rev}]
+
+    case Sofa.raw(sofa, path, :delete, [], "", headers) do
+      {:ok, _sofa, %Sofa.Response{status: 200, body: %{"rev" => new_rev}}} ->
+        {:ok, new_rev}
+
+      {:ok, _sofa, %Sofa.Response{status: 404}} ->
+        {:error, :not_found}
+
+      {:error, %Sofa.Response{status: 400}} ->
+        {:error, :bad_request}
+
+      {:error, %Sofa.Response{status: 401}} ->
+        {:error, :unauthorized}
+
+      {:error, %Sofa.Response{status: 403}} ->
+        {:error, :forbidden}
+
+      {:error, %Sofa.Response{status: 404}} ->
+        {:error, :not_found}
+
+      {:error, %Sofa.Response{status: 409}} ->
+        {:error, :conflict}
+    end
+  end
+
+  @doc """
+  Check if attachment exists on a document
+  """
+  @spec attachment_exists?(Sofa.t(), String.t(), String.t()) :: boolean()
+  def attachment_exists?(sofa = %Sofa{database: db}, doc_id, attachment_name)
+      when is_binary(doc_id) and is_binary(attachment_name) do
+    path = db <> "/" <> doc_id <> "/" <> attachment_name
+
+    case Sofa.raw(sofa, path, :head) do
+      {:ok, _sofa, %Sofa.Response{status: 200}} -> true
+      _ -> false
     end
   end
 end

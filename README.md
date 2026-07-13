@@ -78,7 +78,7 @@ API transparently.
 - [x] database: `Sofa.DB.*`
 - [x] document: `Sofa.Doc.*`
 - [x] user:     `Sofa.User.*`
-- [ ] attachments
+- [x] attachments `Sofa.Doc.Attachment.*`
 - [ ] transparent Struct API
 - [ ] view:     `Sofa.View.*`
 - [ ] changes:  `Sofa.Changes.*`
@@ -172,6 +172,27 @@ iex> Sofa.Doc.exists?(db,"missing")
     false
 ```
 
+```elixir
+iex> doc = %{"_id" => "smol", "cute" => true}
+        |> Sofa.Doc.from_map()
+        |> Sofa.Doc.put_attachment("image/png", "cat.png", "base64-encoded-data")
+    %Sofa.Doc{
+        attachments: %{
+            "cat.png" => %Sofa.Doc.Attachment{
+                content_type: "image/png",
+                data: "base64-encoded-data",
+                digest: nil,
+                length: 0,
+                revpos: 0
+            }
+        },
+        body: %{"cute" => true},
+        id: "smol",
+        rev: nil,
+        type
+        type: nil
+    }
+```
 ### Raw Mode
 
 Sometimes you just want to re-upholster the Couch yourself. That's fine,
