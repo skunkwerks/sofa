@@ -1,5 +1,9 @@
 # Changelog
 
+## Next
+
+- Add docs targets to Makefile
+
 ## 0.1.4
 
 - Minor dependencies bump for 2026

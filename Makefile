@@ -2,7 +2,7 @@
 .PHONY: all-in-one build clean dist lint test update
 
 all-in-one:
-	mix do deps.get --all, deps.compile, format, credo, compile
+	mix do deps.get --all + deps.compile + format + credo + compile + docs
 
 dist: clean all-in-one lint test
 
@@ -17,7 +17,7 @@ lint:
 	env MIX_DEBUG=0 mix do format --check-formatted, credo --strict, dialyzer, docs
 
 build:
-	mix compile
+	mix do compile + docs
 
 gitup:
 	@git clean -fdx
