@@ -111,6 +111,11 @@ defmodule SofaTest do
     assert Enum.any?(@admin_sofa.client.pre, &match?({Tesla.Middleware.BasicAuth, _, _}, &1))
   end
 
+  test "all_dbs/1 returns {:ok, list} with admin credentials" do
+    expected = fixture("all_dbs_200.json")
+    assert {:ok, ^expected} = Sofa.connect!(@admin_sofa) |> Sofa.all_dbs()
+  end
+
   test "active_tasks/1 requests /_active_tasks" do
     # only the /_active_tasks mock returns this fixture
     expected = fixture("active_tasks_401.json")

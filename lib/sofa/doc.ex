@@ -53,7 +53,7 @@ defmodule Sofa.Doc do
   - `{:error, not_found}` # doc doesn't exist
   - `{:ok, %Sofa.Doc{}}` # doc exists and has metadata
   """
-  @spec exists(Sofa.t(), String.t()) :: {:error, any()} | {:ok, %{}}
+  @spec exists(Sofa.t(), String.t()) :: {:error, any()} | {:ok, t()}
   def exists(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
     case Sofa.raw(sofa, db <> "/" <> doc, :head) do
       {:error, reason} ->
@@ -95,8 +95,8 @@ defmodule Sofa.Doc do
   @doc """
   GET doc and returns standard HTTP status, or the requested doc
 
-  - {:error, :not_found}  # doc doesn't exist, or similar HTTP status
-  - %Sofa.Doc{}           # doc exists and has metadata
+  - `{:error, :not_found}` # doc doesn't exist, or similar HTTP status
+  - `%Sofa.Doc{}`          # doc exists and has metadata
   """
   @spec get(Sofa.t(), String.t()) :: {:error, any()} | t()
   def get(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
@@ -337,7 +337,7 @@ defmodule Sofa.Doc do
   @doc """
   delete doc
   """
-  @spec delete(Sofa.t(), t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
+  @spec delete(Sofa.t(), t()) :: :ok | {:error, any()}
   def delete(sofa = %Sofa{database: db}, %Sofa.Doc{id: id, rev: rev})
       when is_binary(db) and is_binary(rev) do
     case Sofa.raw(sofa, db <> "/" <> id, :delete, [], "", [{"If-Match", rev}]) do
@@ -351,7 +351,7 @@ defmodule Sofa.Doc do
         {:error, :bad_request}
 
       {:error, %Sofa.Response{status: 401}} ->
-        {:error, :unathorized}
+        {:error, :unauthorized}
 
       {:ok, _sofa, _resp} ->
         :ok

@@ -55,6 +55,14 @@ defmodule SofaDocTest do
           body: fixture("delete_doc_409.json")
         }
 
+      %{method: :delete, url: @plain_url <> "mydb/denied"} ->
+        %Tesla.Env{
+          method: :delete,
+          status: 401,
+          headers: [],
+          body: fixture("put_doc_401.json")
+        }
+
       %{method: :delete, url: @plain_url <> "mydb/exists"} ->
         %Tesla.Env{
           method: :delete,
@@ -167,6 +175,17 @@ defmodule SofaDocTest do
       |> Sofa.Doc.delete(doc)
 
     assert :ok = response
+  end
+
+  test "DELETE /mydb/denied returns 401 Unauthorized" do
+    doc = Sofa.Doc.from_map(%{"_id" => "denied", "_rev" => "stuff"})
+
+    response =
+      Sofa.connect!(@plain_sofa)
+      |> Sofa.DB.open!("mydb")
+      |> Sofa.Doc.delete(doc)
+
+    assert {:error, :unauthorized} = response
   end
 
   # GET doc

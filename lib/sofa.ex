@@ -146,7 +146,7 @@ defmodule Sofa do
       iex> Sofa.auth_info("garbage")
       %{}
   """
-  @spec auth_info(nil | String.t()) :: %{} | %{user: String.t(), password: String.t()}
+  @spec auth_info(nil | String.t()) :: %{} | %{username: String.t(), password: String.t()}
   def auth_info(nil), do: %{}
 
   def auth_info(info) when is_binary(info) do
@@ -222,7 +222,7 @@ defmodule Sofa do
   @doc """
   List all databases. Only available to admin users.
   """
-  @spec all_dbs(Sofa.t()) :: {:error, any()} | {:ok, Sofa.t(), [String.t()]}
+  @spec all_dbs(Sofa.t()) :: {:error, any()} | {:ok, [String.t()]}
   def all_dbs(sofa = %Sofa{}) do
     case raw(sofa, "_all_dbs") do
       {:error, reason} -> {:error, reason}
