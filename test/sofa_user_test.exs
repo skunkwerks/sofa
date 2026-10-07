@@ -27,6 +27,17 @@ defmodule SofaUserTest do
 
       %{method: :get, url: @plain_url <> "_users/org.couchdb.user:dch"} ->
         %Tesla.Env{method: :get, status: 200, body: fixture("get_user_200.json")}
+
+      # a password reset must not carry stale hash fields back to CouchDB
+      %{method: :put, url: @plain_url <> "_users/org.couchdb.user:reset", body: body} ->
+        stale = ["derived_key", "salt", "iterations", "password_scheme"]
+
+        doc = Jason.decode!(body)
+
+        case Map.has_key?(doc, "password") and not Enum.any?(stale, &Map.has_key?(doc, &1)) do
+          true -> %Tesla.Env{method: :put, status: 201, body: fixture("put_user_201.json")}
+          false -> %Tesla.Env{method: :put, status: 400, body: fixture("put_doc_400.json")}
+        end
     end)
 
     :ok
@@ -116,6 +127,36 @@ defmodule SofaUserTest do
     assert !Map.has_key?(response.body, "password")
     assert Map.get(response.body, "password_scheme") == "pbkdf2"
     assert is_integer(Map.get(response.body, "iterations"))
+  end
+
+  test "reset_password/2 stores the new password under a string key" do
+    doc = Sofa.User.new("reset", "old") |> Sofa.User.reset_password("new")
+
+    assert doc.body["password"] == "new"
+    refute Map.has_key?(doc.body, :password)
+  end
+
+  test "reset_password/2 followed by put/2 strips stale password hash fields" do
+    doc =
+      Sofa.connect!(@plain_sofa)
+      |> Sofa.DB.open!("_users")
+      |> Sofa.User.get("dch")
+
+    # pretend the fetched user was "reset" so the mock can validate the body
+    reset =
+      %Sofa.Doc{doc | id: "org.couchdb.user:reset", body: %{doc.body | "name" => "reset"}}
+      |> Sofa.User.reset_password("fresh")
+
+    assert Map.has_key?(reset.body, "derived_key")
+
+    assert {:ok, %Sofa.Doc{body: body}} =
+             Sofa.connect!(@plain_sofa)
+             |> Sofa.DB.open!("_users")
+             |> Sofa.User.put(reset)
+
+    assert body["password"] == "fresh"
+    refute Map.has_key?(body, "derived_key")
+    refute Map.has_key?(body, "salt")
   end
 
   ## helper function tests

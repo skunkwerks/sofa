@@ -8,6 +8,8 @@
     request as anonymous
 - Fix `Sofa.active_tasks/1` requesting `/active_tasks` instead of `/_active_tasks`
 - Fix `Sofa.Doc.new/1` silently discarding `body` when given `%{id: id, body: body}`
+- Fix `Sofa.User.reset_password/2` storing the new password under an atom key,
+    so `Sofa.User.put/2` did not strip the stale fields
 
 ## 0.2.0
 

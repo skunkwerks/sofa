@@ -132,7 +132,7 @@ defmodule Sofa.User do
         body:
           Map.put(
             doc.body,
-            :password,
+            "password",
             case password do
               "" -> generate_random_secret()
               _ -> password
