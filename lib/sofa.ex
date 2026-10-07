@@ -204,13 +204,17 @@ defmodule Sofa do
     url = sofa.uri.host <> ":" <> to_string(sofa.uri.port)
 
     case connect(sofa) do
-      {:error, :econnrefused} ->
-        raise Sofa.Error, "connection refused to " <> url
-
       {:ok, resp} ->
         resp
 
-      _ ->
+      {:error, :econnrefused} ->
+        raise Sofa.Error, "connection refused to " <> url
+
+      {:error, %{reason: :econnrefused}} ->
+        raise Sofa.Error, "connection refused to " <> url
+
+      {:error, reason} ->
+        Logger.debug("unhandled error from #{url} #{inspect(reason)}")
         raise Sofa.Error, "unhandled error from " <> url
     end
   end
@@ -290,9 +294,11 @@ defmodule Sofa do
            status: resp.status
          }}
 
-      error ->
-        Logger.debug("unhandled error in #{method} #{path} #{inspect(error)}")
-        raise Sofa.Error, "unhandled error in #{method} #{path}"
+      {:error, reason} ->
+        # transport-level failures such as :econnrefused, :timeout, or a
+        # %Mint.TransportError{}; the bang! variants raise on these instead
+        Logger.debug("transport error in #{method} #{path} #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
@@ -311,10 +317,9 @@ defmodule Sofa do
       {:ok, %Sofa{}, response = %Sofa.Response{}} ->
         response
 
-      {:error, _reason} = error ->
-        raise(Sofa.Error, "unhandled error in #{method} #{path}")
-
-        Logger.debug("unhandled error in #{method} #{path} #{inspect(error)}")
+      {:error, reason} ->
+        Logger.debug("unhandled error in #{method} #{path} #{inspect(reason)}")
+        raise Sofa.Error, "unhandled error in #{method} #{path}"
     end
   end
 end

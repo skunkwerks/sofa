@@ -7,6 +7,7 @@ defmodule SofaTest do
   @admin_url "http://" <> @admin_password <> "@localhost:5984/"
   @admin_sofa Sofa.init(@admin_url) |> Sofa.client()
   @admin_header [{"authorization", "Basic " <> Base.encode64(@admin_password)}]
+  @refused_url "http://localhost:1/"
 
   import Tesla.Mock
 
@@ -24,6 +25,13 @@ defmodule SofaTest do
 
       %{method: :get, url: @plain_url <> "_all_dbs", headers: @admin_header} ->
         %Tesla.Env{method: :get, status: 200, body: fixture("all_dbs_200.json")}
+
+      # transport-level failures, as returned by Tesla adapters
+      %{method: :get, url: @plain_url <> "_down"} ->
+        {:error, :econnrefused}
+
+      %{method: :get, url: @refused_url} ->
+        {:error, %Mint.TransportError{reason: :econnrefused}}
     end)
 
     :ok
@@ -109,6 +117,22 @@ defmodule SofaTest do
 
     assert {:error, %Sofa.Response{status: 401, body: ^expected}} =
              Sofa.connect!(@plain_sofa) |> Sofa.active_tasks()
+  end
+
+  test "raw/2 returns {:error, reason} on transport errors" do
+    assert {:error, :econnrefused} = Sofa.connect!(@plain_sofa) |> Sofa.raw("_down")
+  end
+
+  test "raw!/2 raises Sofa.Error on transport errors" do
+    assert_raise Sofa.Error, ~r/unhandled error in get _down/, fn ->
+      Sofa.connect!(@plain_sofa) |> Sofa.raw!("_down")
+    end
+  end
+
+  test "connect!/1 raises Sofa.Error on connection refused" do
+    assert_raise Sofa.Error, ~r/connection refused to localhost:1/, fn ->
+      Sofa.connect!(@refused_url)
+    end
   end
 
   defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()

@@ -12,6 +12,9 @@
     so `Sofa.User.put/2` did not strip the stale fields
 - Fix `Sofa.Cushion.untaint_headers/1` being exponential in the number of
     unrecognised response headers
+- `Sofa.raw/6` now returns `{:error, reason}` for transport errors such as
+    `:econnrefused` or `:timeout` instead of raising. NB `Sofa.raw!/5` still raises
+- `Sofa.connect!/1` recognises `%Mint.TransportError{reason: :econnrefused}`
 
 ## 0.2.0
 
