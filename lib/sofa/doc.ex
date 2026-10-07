@@ -34,17 +34,17 @@ defmodule Sofa.Doc do
   Creates a new (empty) document
   """
 
-  @spec new(String.t() | %{}) :: t()
+  @spec new(String.t() | %{id: String.t(), body: map()} | %{id: String.t()}) :: t()
   def new(id) when is_binary(id) do
-    %Sofa.Doc{id: id, body: %{}}
-  end
-
-  def new(%{id: id}) when is_binary(id) do
     %Sofa.Doc{id: id, body: %{}}
   end
 
   def new(%{id: id, body: body}) when is_binary(id) and is_map(body) do
     %Sofa.Doc{id: id, body: body}
+  end
+
+  def new(%{id: id}) when is_binary(id) do
+    %Sofa.Doc{id: id, body: %{}}
   end
 
   @doc """

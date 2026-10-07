@@ -7,6 +7,7 @@
     credentials are given, which CouchDB rejects rather than treating the
     request as anonymous
 - Fix `Sofa.active_tasks/1` requesting `/active_tasks` instead of `/_active_tasks`
+- Fix `Sofa.Doc.new/1` silently discarding `body` when given `%{id: id, body: body}`
 
 ## 0.2.0
 

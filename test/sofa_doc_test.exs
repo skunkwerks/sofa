@@ -254,6 +254,12 @@ defmodule SofaDocTest do
     assert {:error, :conflict} = response
   end
 
+  test "new/1 accepts id string, %{id: id} and %{id: id, body: body}" do
+    assert %Sofa.Doc{id: "a", body: %{}} = Sofa.Doc.new("a")
+    assert %Sofa.Doc{id: "b", body: %{}} = Sofa.Doc.new(%{id: "b"})
+    assert %Sofa.Doc{id: "c", body: %{"k" => 1}} = Sofa.Doc.new(%{id: "c", body: %{"k" => 1}})
+  end
+
   test "from_map doesn't leak forbidden keys into doc.body" do
     bad_keys = ["_rev", "_attachments", :_id, :_rev, :_attachments, :__struct__, "__struct__"]
     good_map = %{"_id" => "toasty", "key" => "important", "type" => "Sofa"}
