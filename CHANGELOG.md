@@ -10,6 +10,8 @@
 - Fix `Sofa.Doc.new/1` silently discarding `body` when given `%{id: id, body: body}`
 - Fix `Sofa.User.reset_password/2` storing the new password under an atom key,
     so `Sofa.User.put/2` did not strip the stale fields
+- Fix `Sofa.Cushion.untaint_headers/1` being exponential in the number of
+    unrecognised response headers
 
 ## 0.2.0
 

@@ -61,13 +61,12 @@ defmodule Sofa.Cushion do
     untaint_headers(t, Map.put(m, :couch_body_time, String.to_integer(v)))
   end
 
-  # try just this header in lower-case; otherwise dump it
+  # retry this header in lower-case; if it is already lower-case and still
+  # unmatched by the clauses above, it's not one we care about, so drop it
   defp untaint_headers([{k, v} | t], m) do
-    m = untaint_headers(t, m)
-
     case String.downcase(k) do
       ^k -> untaint_headers(t, m)
-      l -> untaint_headers([{l, v}], m)
+      l -> untaint_headers([{l, v} | t], m)
     end
   end
 end
