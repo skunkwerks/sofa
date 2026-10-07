@@ -6,6 +6,7 @@
 - Fix `Sofa.client/1` sending an empty `Authorization: Basic` header when no
     credentials are given, which CouchDB rejects rather than treating the
     request as anonymous
+- Fix `Sofa.active_tasks/1` requesting `/active_tasks` instead of `/_active_tasks`
 
 ## 0.2.0
 

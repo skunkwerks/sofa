@@ -103,5 +103,13 @@ defmodule SofaTest do
     assert Enum.any?(@admin_sofa.client.pre, &match?({Tesla.Middleware.BasicAuth, _, _}, &1))
   end
 
+  test "active_tasks/1 requests /_active_tasks" do
+    # only the /_active_tasks mock returns this fixture
+    expected = fixture("active_tasks_401.json")
+
+    assert {:error, %Sofa.Response{status: 401, body: ^expected}} =
+             Sofa.connect!(@plain_sofa) |> Sofa.active_tasks()
+  end
+
   defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
 end

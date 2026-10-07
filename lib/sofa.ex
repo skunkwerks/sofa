@@ -229,9 +229,9 @@ defmodule Sofa do
   @doc """
   Get _active_tasks. Only available to admin users.
   """
-  @spec active_tasks(Sofa.t()) :: {:error, any()} | {:ok, Sofa.t(), [String.t()]}
+  @spec active_tasks(Sofa.t()) :: {:error, any()} | {:ok, [map()]}
   def active_tasks(sofa = %Sofa{}) do
-    case raw(sofa, "active_tasks") do
+    case raw(sofa, "_active_tasks") do
       {:error, reason} -> {:error, reason}
       {:ok, _sofa, resp} -> {:ok, resp.body}
     end
