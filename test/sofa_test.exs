@@ -95,5 +95,13 @@ defmodule SofaTest do
             }} = response
   end
 
+  test "client/1 omits BasicAuth middleware when no credentials are supplied" do
+    refute Enum.any?(@plain_sofa.client.pre, &match?({Tesla.Middleware.BasicAuth, _, _}, &1))
+  end
+
+  test "client/1 includes BasicAuth middleware when credentials are supplied" do
+    assert Enum.any?(@admin_sofa.client.pre, &match?({Tesla.Middleware.BasicAuth, _, _}, &1))
+  end
+
   defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
 end

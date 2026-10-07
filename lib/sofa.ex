@@ -111,11 +111,20 @@ defmodule Sofa do
   def client(couch = %Sofa{uri: uri}) do
     couch_url = uri.scheme <> "://" <> uri.host <> ":#{uri.port}/"
 
-    middleware = [
-      {Tesla.Middleware.BaseUrl, couch_url},
-      Tesla.Middleware.JSON,
-      {Tesla.Middleware.BasicAuth, auth_info(uri.userinfo)}
-    ]
+    # only attach BasicAuth when credentials are actually present, otherwise
+    # Tesla sends an empty `Basic Og==` header and CouchDB rejects the request
+    # instead of treating it as an anonymous one
+    auth =
+      case auth_info(uri.userinfo) do
+        %{username: _, password: _} = creds -> [{Tesla.Middleware.BasicAuth, creds}]
+        _ -> []
+      end
+
+    middleware =
+      [
+        {Tesla.Middleware.BaseUrl, couch_url},
+        Tesla.Middleware.JSON
+      ] ++ auth
 
     client = Tesla.client(middleware)
     %Sofa{couch | client: client, timeout: @default_timeout}

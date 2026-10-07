@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- Update dependencies (mint 1.11, tesla 1.21)
+- Fix `Sofa.client/1` sending an empty `Authorization: Basic` header when no
+    credentials are given, which CouchDB rejects rather than treating the
+    request as anonymous
+
 ## 0.2.0
 
 - Configure Mint transport options to support dual stack inet6/inet configs
