@@ -20,6 +20,14 @@
     and an ex_doc markup warning in `Sofa.Doc.get/2`
 - Use `+` instead of the deprecated `,` separator for `mix do` in the Makefile,
     bump the README install snippet to `~> 0.2`, and format `config/config.exs`
+- Add `mix precommit` alias (compile with warnings as errors, drop unused lock
+    entries, format, test), a `.dialyzer_ignore.exs` file, and `--format dialyxir`
+    in `make lint`
+- `Sofa.client/2` accepts an optional Tesla adapter, overriding the configured one
+- Add integration tests against a real CouchDB, excluded by default, and run them
+    in a GitHub Actions workflow alongside `make lint`; see `make test-integration`
+- Add a sourcehut FreeBSD 15 build manifest running the same lint, unit and
+    CouchDB integration tests against the `databases/couchdb3` package
 
 ## 0.2.0
 

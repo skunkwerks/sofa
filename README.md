@@ -30,7 +30,7 @@ dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:sofa, "~> 0.1.0"}
+    {:sofa, "~> 0.3"}
   ]
 end
 ```

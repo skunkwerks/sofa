@@ -9,6 +9,7 @@ defmodule Sofa.MixProject do
 
     [
       app: :sofa,
+      aliases: aliases(),
       deps: deps(),
       description: "Sofa, an idiomatic relaxing CouchDB client " <> version,
       # http://erlang.org/doc/man/dialyzer.html
@@ -67,9 +68,24 @@ defmodule Sofa.MixProject do
     [tag_version, full_version]
   end
 
+  # Aliases are shortcuts or tasks specific to the current project.
+  # `mix precommit` runs in the :test env, see cli/0
+  defp aliases do
+    [
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [precommit: :test]
+    ]
+  end
+
   defp dialyzer do
     [
       flags: ["-Wunmatched_returns", :error_handling],
+      ignore_warnings: ".dialyzer_ignore.exs",
       list_unused_filters: true,
       plt_local_path: System.user_home!() <> "/.mix/plts/sofa"
     ]
@@ -108,9 +124,9 @@ defmodule Sofa.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:credo, "~> 1.3", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.1", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.3", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:jason, "~> 1.4"},
       {:mint, "~> 1.7"},
       {:tesla, "~> 1.14"}

@@ -1,0 +1,52 @@
+# submit this via `hut builds submit -f .builds/freebsd-15.yml`
+image: freebsd/15.x
+packages:
+  - databases/couchdb3
+  - lang/elixir-devel
+  - lang/erlang-runtime29
+sources:
+  - https://git.sr.ht/~dch/sofa
+# elixir-devel has no erlang dependency of its own, and erlang-runtime29 is
+# not on the default PATH; tasks source ~/.buildenv, which exports these
+environment:
+  PATH: /usr/local/lib/erlang29/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+tasks:
+  - probe: |
+      uname -a
+      elixir --version
+  - prepare: |
+      cd sofa
+      make prepare
+      mix deps.get
+  # start CouchDB early so it is up by the time the integration tests run;
+  # see test/integration/README.md for the expected credentials
+  - couchdb: |
+      sudo tee -a /usr/local/etc/couchdb3/local.ini >/dev/null <<'INI'
+
+      [couchdb]
+      single_node = true
+
+      [admins]
+      admin = passwd
+      INI
+      sudo sysrc couchdb3_enable=YES
+      sudo service couchdb3 start
+  - compile: |
+      cd sofa
+      env MIX_ENV=test mix compile --warnings-as-errors
+  - test: |
+      cd sofa
+      make test
+  - integration: |
+      cd sofa
+      # FreeBSD base has fetch(1) but no curl; wait up to a minute for CouchDB
+      for i in $(seq 1 30); do
+        fetch -qo /dev/null http://localhost:5984/ && break
+        sleep 2
+      done
+      fetch -o - http://localhost:5984/
+      make test-integration
+  # last, as it is slowest: dialyzer builds its PLT from scratch here
+  - lint: |
+      cd sofa
+      make lint

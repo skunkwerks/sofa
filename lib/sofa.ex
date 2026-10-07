@@ -104,11 +104,17 @@ defmodule Sofa do
   end
 
   @doc """
-  Builds Telsa runtime client, with appropriate middleware header credentials,
+  Builds Tesla runtime client, with appropriate middleware header credentials,
   from supplied %Sofa{} struct.
+
+  An optional Tesla adapter, such as `Tesla.Adapter.Mint` or
+  `{Tesla.Adapter.Mint, transport_opts: [inet6: true]}`, overrides the
+  adapter configured for `:tesla` in your application config. This is handy
+  for running integration tests against a real CouchDB while unit tests
+  keep using `Tesla.Mock`.
   """
-  @spec client(Sofa.t()) :: Sofa.t()
-  def client(couch = %Sofa{uri: uri}) do
+  @spec client(Sofa.t(), nil | module() | {module(), keyword()}) :: Sofa.t()
+  def client(couch = %Sofa{uri: uri}, adapter \\ nil) do
     couch_url = uri.scheme <> "://" <> uri.host <> ":#{uri.port}/"
 
     # only attach BasicAuth when credentials are actually present, otherwise
@@ -126,7 +132,7 @@ defmodule Sofa do
         Tesla.Middleware.JSON
       ] ++ auth
 
-    client = Tesla.client(middleware)
+    client = Tesla.client(middleware, adapter)
     %Sofa{couch | client: client, timeout: @default_timeout}
   end
 

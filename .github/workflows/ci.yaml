@@ -1,0 +1,107 @@
+name: Elixir CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  MIX_ENV: test
+  MIX_OS_DEPS_COMPILE_PARTITION_COUNT: 4
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: Lint
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Elixir
+        id: setup-beam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          elixir-version: "1.20.3"
+
+      - name: Cache deps
+        uses: actions/cache@v5
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-lint-v1-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-lint-v1-
+
+      - name: Cache PLTs
+        uses: actions/cache@v5
+        with:
+          path: ~/.mix/plts
+          key: ${{ runner.os }}-plt-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-plt-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Check for unused lock entries
+        run: mix deps.unlock --check-unused
+
+      - run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+    name: Test
+    services:
+      couchdb:
+        image: couchdb:3
+        env:
+          COUCHDB_USER: admin
+          COUCHDB_PASSWORD: passwd
+        ports:
+          - 5984:5984
+        options: >-
+          --health-cmd "curl -f http://localhost:5984/"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Elixir
+        id: setup-beam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          elixir-version: "1.20.3"
+
+      - name: Cache deps
+        uses: actions/cache@v5
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-test-v1-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-test-v1-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Run unit tests
+        run: mix test --color
+
+      - name: Run integration tests against CouchDB
+        env:
+          COUCHDB_URI: http://admin:passwd@localhost:5984/
+        run: mix test --color --include integration test/integration

@@ -20,7 +20,6 @@ else
   # ipv6 dead: works
   # config :tesla, adapter: {Tesla.Adapter.Mint, transport_opts: []}
 
-
   # dualstack: tries ipv6 first
   # ipv6 only: works
   # ipv4 only: works
