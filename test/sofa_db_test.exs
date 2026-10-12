@@ -1,55 +1,42 @@
 defmodule SofaDbTest do
   use ExUnit.Case, async: true
 
-  @plain_url "http://localhost:5984/"
-  @plain_sofa Sofa.init(@plain_url) |> Sofa.client()
-  @admin_password "admin:passwd"
-  @admin_url "http://" <> @admin_password <> "@localhost:5984/"
-  @admin_sofa Sofa.init(@admin_url) |> Sofa.client()
-  @admin_header [{"authorization", "Basic " <> Base.encode64(@admin_password)}]
-
-  import Tesla.Mock
+  import Sofa.BypassHelpers
 
   setup do
-    mock(fn
+    %{bypass: bypass} = plain = start()
+    admin = start(admin())
+
+    for b <- [bypass, admin.bypass] do
       # required for Sofa.connect!/1 in all tests
-      %{method: :get, url: @plain_url} ->
-        %Tesla.Env{status: 200, body: fixture("init_200.json")}
+      Bypass.stub(b, "GET", "/", &json(&1, 200, "init_200.json"))
 
-      %{method: :get, url: @plain_url <> "missing"} ->
-        %Tesla.Env{method: :get, status: 404, body: fixture("get_db_404.json")}
+      Bypass.stub(b, "GET", "/missing", &json(&1, 404, "get_db_404.json"))
+      Bypass.stub(b, "GET", "/exists", &json(&1, 200, "get_db_200.json"))
 
-      %{method: :get, url: @plain_url <> "exists"} ->
-        %Tesla.Env{method: :get, status: 200, body: fixture("get_db_200.json")}
+      Bypass.stub(b, "PUT", "/newdb", fn conn ->
+        true = basic_auth?(conn, admin())
+        json(conn, 200, "put_db_200.json")
+      end)
 
-      %{method: :put, url: @plain_url <> "newdb", headers: @admin_header} ->
-        %Tesla.Env{method: :put, status: 200, body: fixture("put_db_200.json")}
+      Bypass.stub(b, "PUT", "/already", &json(&1, 412, "put_db_412.json"))
+      Bypass.stub(b, "HEAD", "/forbidden", &empty(&1, 403))
+      Bypass.stub(b, "HEAD", "/missing", &empty(&1, 404))
+      Bypass.stub(b, "HEAD", "/exists", &empty(&1, 200))
 
-      %{method: :put, url: @plain_url <> "already"} ->
-        %Tesla.Env{method: :put, status: 412, body: fixture("put_db_412.json")}
+      Bypass.stub(b, "HEAD", "/secured", fn conn ->
+        if basic_auth?(conn, admin()), do: empty(conn, 200), else: empty(conn, 401)
+      end)
 
-      %{method: :head, url: @plain_url <> "forbidden"} ->
-        %Tesla.Env{method: :head, status: 403, body: ""}
+      Bypass.stub(b, "DELETE", "/trash", &json(&1, 202, "delete_db_202.json"))
+    end
 
-      %{method: :head, url: @plain_url <> "missing"} ->
-        %Tesla.Env{method: :head, status: 404, body: ""}
-
-      %{method: :head, url: @plain_url <> "exists"} ->
-        %Tesla.Env{method: :head, status: 200, body: ""}
-
-      %{method: :head, url: @plain_url <> "secured", headers: @admin_header} ->
-        %Tesla.Env{method: :head, status: 200, body: ""}
-
-      %{method: :delete, url: @plain_url <> "trash"} ->
-        %Tesla.Env{method: :delete, status: 202, body: fixture("delete_db_202.json")}
-    end)
-
-    :ok
+    %{plain: plain.sofa, admin: admin.sofa}
   end
 
-  test "GET /missing db returns 404 Not Found" do
+  test "GET /missing db returns 404 Not Found", %{plain: plain} do
     expected = fixture("get_db_404.json")
-    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.info("missing")
+    response = Sofa.connect!(plain) |> Sofa.DB.info("missing")
 
     assert {:error,
             %Sofa.Response{
@@ -59,9 +46,9 @@ defmodule SofaDbTest do
             }} = response
   end
 
-  test "GET /exists returns 200 OK" do
+  test "GET /exists returns 200 OK", %{plain: plain} do
     expected = fixture("get_db_200.json")
-    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.info("exists")
+    response = Sofa.connect!(plain) |> Sofa.DB.info("exists")
 
     assert {:ok, %Sofa{},
             %Sofa.Response{
@@ -71,11 +58,11 @@ defmodule SofaDbTest do
             }} = response
   end
 
-  test "PUT /newdb returns 200 OK" do
+  test "PUT /newdb returns 200 OK", %{admin: admin} do
     expected = fixture("put_db_200.json")
-    response = Sofa.connect!(@admin_sofa) |> Sofa.DB.create("newdb")
+    response = Sofa.connect!(admin) |> Sofa.DB.create("newdb")
 
-    assert {:ok, %Sofa{},
+    assert {:ok, %Sofa{database: "newdb"},
             %Sofa.Response{
               method: :put,
               status: 200,
@@ -83,9 +70,9 @@ defmodule SofaDbTest do
             }} = response
   end
 
-  test "PUT /already returns 412 File Exists" do
+  test "PUT /already returns 412 File Exists", %{admin: admin} do
     expected = fixture("put_db_412.json")
-    response = Sofa.connect!(@admin_sofa) |> Sofa.DB.create("already")
+    response = Sofa.connect!(admin) |> Sofa.DB.create("already")
 
     assert {:error,
             %Sofa.Response{
@@ -95,9 +82,9 @@ defmodule SofaDbTest do
             }} = response
   end
 
-  test "DELETE /trash returns 202 OK" do
+  test "DELETE /trash returns 202 OK", %{admin: admin} do
     expected = fixture("delete_db_202.json")
-    response = Sofa.connect!(@admin_sofa) |> Sofa.DB.delete("trash")
+    response = Sofa.connect!(admin) |> Sofa.DB.delete("trash")
 
     assert {:ok, %Sofa{},
             %Sofa.Response{
@@ -107,14 +94,16 @@ defmodule SofaDbTest do
             }} = response
   end
 
-  test "HEAD /secured with authentication returns 200 OK" do
-    response = Sofa.connect!(@admin_sofa) |> Sofa.DB.open("secured")
-
-    assert {:ok, %Sofa{database: "secured"}} = response
+  test "HEAD /secured with authentication returns 200 OK", %{admin: admin} do
+    assert {:ok, %Sofa{database: "secured"}} = Sofa.connect!(admin) |> Sofa.DB.open("secured")
   end
 
-  test "HEAD /forbidden returns 403 Forbidden" do
-    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.open("forbidden")
+  test "HEAD /secured without authentication returns 401", %{plain: plain} do
+    assert {:error, %Sofa.Response{status: 401}} = Sofa.connect!(plain) |> Sofa.DB.open("secured")
+  end
+
+  test "HEAD /forbidden returns 403 Forbidden", %{plain: plain} do
+    response = Sofa.connect!(plain) |> Sofa.DB.open("forbidden")
 
     assert {:error,
             %Sofa.Response{
@@ -124,8 +113,8 @@ defmodule SofaDbTest do
             }} = response
   end
 
-  test "HEAD /missing returns 404 Object Not Found" do
-    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.open("missing")
+  test "HEAD /missing returns 404 Object Not Found", %{plain: plain} do
+    response = Sofa.connect!(plain) |> Sofa.DB.open("missing")
 
     assert {:error,
             %Sofa.Response{
@@ -135,11 +124,16 @@ defmodule SofaDbTest do
             }} = response
   end
 
-  test "open!/2 returns %Sofa{database: :dbname}" do
-    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.open("exists")
-
-    assert {:ok, %Sofa{database: "exists"}} = response
+  test "open/2 returns %Sofa{database: dbname}", %{plain: plain} do
+    assert {:ok, %Sofa{database: "exists"}} = Sofa.connect!(plain) |> Sofa.DB.open("exists")
   end
 
-  defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
+  test "open!/2 returns %Sofa{database: dbname} or raises", %{plain: plain} do
+    sofa = Sofa.connect!(plain)
+    assert %Sofa{database: "exists"} = Sofa.DB.open!(sofa, "exists")
+
+    assert_raise Sofa.Error, ~r/unable to open database missing/, fn ->
+      Sofa.DB.open!(sofa, "missing")
+    end
+  end
 end
