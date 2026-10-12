@@ -21,6 +21,23 @@ defmodule Sofa.Attachment do
   so a document built with `Sofa.Doc.attach/4` saves its attachments
   inline in one request.
 
+  Reads take the database handle first, as elsewhere in Sofa. Writes take
+  the document first and return it with its new revision, so uploads
+  pipe:
+
+      doc
+      |> Sofa.Attachment.put!(db, "recipe.txt", File.read!("recipe.txt"))
+      |> Sofa.Attachment.put!(db, "video.mp4", {:file, "video.mp4"})
+
+  ## Compression
+
+  CouchDB stores attachments of its `compressible_types`, such as
+  `text/plain`, gzipped, and computes the digest over those stored bytes.
+  `get/4` verifies the bytes against that digest and decompresses them,
+  recording `encoding` and `encoded_length`, so `data` is always the plain
+  content. The digest of such an attachment therefore does not match its
+  plain content, which `verified?/1` accounts for.
+
   ## Examples
 
       iex> att = Sofa.Attachment.new("recipe.txt", "1. Cook spaghetti\\n")
@@ -30,6 +47,8 @@ defmodule Sofa.Attachment do
       iex> Sofa.Attachment.new("recipe.txt", "...") |> Sofa.Attachment.to_stub()
       %{"content_type" => "text/plain", "data" => "Li4u"}
   """
+
+  alias Sofa.Cushion
 
   @typedoc "A content digest as CouchDB reports it: `md5-` and the base64 hash"
   @type digest :: String.t()
@@ -51,21 +70,107 @@ defmodule Sofa.Attachment do
   @typedoc "A document, or just its id where no revision is involved"
   @type doc_ref :: Sofa.Doc.t() | String.t()
 
+  @typedoc "Content to upload: in memory, from a file, or any enumerable of binaries"
+  @type content :: binary() | {:file, Path.t()} | Enumerable.t()
+
   @typedoc "Why a request failed, as the usual atoms, or the response for anything else"
-  @type error ::
-          :not_found
-          | :unauthorized
-          | :forbidden
-          | :conflict
-          | :bad_request
-          | :digest_mismatch
-          | Sofa.Response.t()
-          | term()
+  @type error :: Sofa.Response.error() | :digest_mismatch | term()
 
-  alias Sofa.Cushion
+  ## Building
 
-  # without it CouchDB decompresses on the way out, and the digest no longer fits
-  @accept_gzip {"accept-encoding", "gzip"}
+  @doc """
+  An attachment with content, ready to be attached to a document.
+
+  The content type comes from the name via `MIME.from_path/1`, falling back
+  to `application/octet-stream`, unless given as `content_type:`. The
+  digest is left to CouchDB, which computes it over the bytes it stores.
+  """
+  @spec new(String.t(), binary(), keyword()) :: t()
+  def new(name, data, opts \\ []) when is_binary(name) and is_binary(data) and is_list(opts) do
+    %__MODULE__{
+      name: name,
+      content_type: Keyword.get(opts, :content_type) || MIME.from_path(name),
+      length: byte_size(data),
+      data: data
+    }
+  end
+
+  @doc """
+  The `md5-` digest CouchDB reports for content.
+
+  CouchDB computes it over the bytes it stores. For content types in its
+  `compressible_types` list, such as `text/plain`, those are the gzipped
+  bytes, so the digest of such an attachment does not match its plain
+  content. `encoding` tells the two apart.
+
+      iex> Sofa.Attachment.digest("My hovercraft is full of eels!")
+      "md5-uoLJeG8NfCWNzP/3AI2Ytw=="
+  """
+  @spec digest(binary()) :: digest()
+  def digest(data) when is_binary(data), do: "md5-" <> Base.encode64(:crypto.hash(:md5, data))
+
+  @doc """
+  Whether the content matches the digest. `false` when either is missing,
+  or when CouchDB stored the content compressed, as the digest then covers
+  the gzipped bytes. `get/4` verifies those while it still has them.
+
+      iex> att = Sofa.Attachment.new("a.bin", "eels")
+      iex> %{att | digest: Sofa.Attachment.digest("eels")} |> Sofa.Attachment.verified?()
+      true
+      iex> %Sofa.Attachment{name: "a", content_type: "text/plain"} |> Sofa.Attachment.verified?()
+      false
+  """
+  @spec verified?(t()) :: boolean()
+  def verified?(%__MODULE__{data: data, digest: digest, encoding: nil})
+      when is_binary(data) and is_binary(digest),
+      do: digest(data) == digest
+
+  def verified?(%__MODULE__{}), do: false
+
+  @doc """
+  Builds an attachment from one entry of a document's `_attachments`.
+
+  Inline `data` is base64 decoded. A stub keeps `data` as `nil`.
+  """
+  @spec from_stub(String.t(), map()) :: t()
+  def from_stub(name, stub = %{"content_type" => content_type}) when is_binary(name) do
+    data = decode(stub["data"])
+
+    %__MODULE__{
+      name: name,
+      content_type: content_type,
+      digest: stub["digest"],
+      length: stub["length"] || (data && byte_size(data)),
+      revpos: stub["revpos"],
+      encoding: stub["encoding"],
+      encoded_length: stub["encoded_length"],
+      data: data
+    }
+  end
+
+  @doc """
+  The `_attachments` entry for an attachment: inline, with the content
+  base64 encoded, when it has content, otherwise a stub that tells CouchDB
+  to keep the attachment it already has. Keys CouchDB did not report are
+  left out.
+  """
+  @spec to_stub(t()) :: map()
+  def to_stub(%__MODULE__{content_type: content_type, data: data}) when is_binary(data) do
+    %{"content_type" => content_type, "data" => Base.encode64(data)}
+  end
+
+  def to_stub(att = %__MODULE__{content_type: content_type}) do
+    %{
+      "content_type" => content_type,
+      "digest" => att.digest,
+      "length" => att.length,
+      "revpos" => att.revpos,
+      "encoding" => att.encoding,
+      "encoded_length" => att.encoded_length,
+      "stub" => true
+    }
+    |> Map.reject(fn {_key, value} -> value == nil end)
+  end
 
   ## Reading, with the database handle first as elsewhere in Sofa
 
@@ -73,9 +178,9 @@ defmodule Sofa.Attachment do
   Fetches an attachment's metadata from the headers of a `HEAD` request:
   content type, size and the digest CouchDB uses as the ETag.
 
-  For an attachment CouchDB stored compressed, `encoding` is set,
-  `encoded_length` is the compressed size and `length` is `nil`, as the
-  original size is not in the headers.
+  For an attachment CouchDB stored compressed, `encoding` is set and
+  `encoded_length` holds the size from the headers, which is the
+  compressed one as the docs warn. The plain `length` is then unknown.
 
   ## Options
 
@@ -86,15 +191,15 @@ defmodule Sofa.Attachment do
   ## Examples
 
       Sofa.Attachment.head(db, "SpaghettiWithMeatballs", "recipe.txt")
-      #=> {:ok, %Sofa.Attachment{name: "recipe.txt", content_type: "text/plain", length: 86, ...}}
+      #=> {:ok, %Sofa.Attachment{name: "recipe.txt", content_type: "text/plain", ...}}
   """
   @spec head(Sofa.t(), doc_ref(), String.t(), keyword()) ::
           {:ok, t() | :not_modified} | {:error, error()}
   def head(sofa = %Sofa{database: db}, doc, name, opts \\ [])
       when is_binary(db) and is_binary(name) do
-    headers = [@accept_gzip | headers(opts)]
-
-    case Sofa.raw(sofa, path(db, doc, name), :head, params(opts), "", headers, decode_body: false) do
+    # as stored: raw: true keeps Req from decompressing and hiding the
+    # Content-Encoding, and asking for gzip keeps CouchDB from inflating
+    case Sofa.raw(sofa, path(db, doc, name), :head, params(opts), "", stored(opts), raw: true) do
       {:ok, _sofa, %Sofa.Response{status: 200, headers: headers}} ->
         {:ok, from_headers(name, headers)}
 
@@ -107,11 +212,11 @@ defmodule Sofa.Attachment do
   end
 
   @doc """
-  Fetches an attachment's content, as the raw bytes CouchDB stored, with
-  the metadata from the response headers. The whole content is checked
-  against the digest as stored, and `{:error, :digest_mismatch}` returned
-  when it differs. Compressed attachments are then decompressed, with
-  `length` the original size and `encoded_length` the stored one.
+  Fetches an attachment's content with the metadata from the response
+  headers. The bytes are verified against the digest CouchDB sends as the
+  ETag, giving `{:error, :digest_mismatch}` if they differ, and an
+  attachment CouchDB stored gzipped is then decompressed, with `encoding`
+  and `encoded_length` recording that.
 
   ## Options
 
@@ -120,13 +225,13 @@ defmodule Sofa.Attachment do
     `length` is then the size of the part, which is not verified
   - `into:` a `Req` sink, such as `File.stream!(path)` or a function, for
     content too large to hold in memory. `data` is then whatever the sink
-    returns, and the content arrives decompressed but is not verified
+    returns, decompressed by Req on the way but not verified
 
   ## Examples
 
       {:ok, att} = Sofa.Attachment.get(db, doc, "recipe.txt")
       att.data
-      #=> "1. Cook spaghetti\\n2. Cook meatballs\\n..."
+      #=> "1. Cook spaghetti\\\\n2. Cook meatballs\\\\n..."
 
       Sofa.Attachment.get(db, doc, "video.mp4", into: File.stream!("/tmp/video.mp4"))
       #=> {:ok, %Sofa.Attachment{data: %File.Stream{}, ...}}
@@ -135,18 +240,17 @@ defmodule Sofa.Attachment do
           {:ok, t() | :not_modified} | {:error, error()}
   def get(sofa = %Sofa{database: db}, doc, name, opts \\ [])
       when is_binary(db) and is_binary(name) do
-    req_opts = [raw: true] ++ Keyword.take(opts, [:into])
-
-    # whole content comes as stored, so it can be verified. Parts and sinks as plain bytes
-    headers =
-      if Keyword.has_key?(opts, :range) or Keyword.has_key?(opts, :into),
-        do: headers(opts),
-        else: [@accept_gzip | headers(opts)]
+    # a sink gets Req's transparent decompression. Otherwise the stored
+    # bytes are fetched as-is so they can be checked against the digest
+    {headers, req_opts} =
+      if Keyword.has_key?(opts, :into),
+        do: {headers(opts), [decode_body: false, into: opts[:into]]},
+        else: {stored(opts), [raw: true]}
 
     case Sofa.raw(sofa, path(db, doc, name), :get, params(opts), "", headers, req_opts) do
       {:ok, _sofa, %Sofa.Response{status: status, headers: headers, body: body}}
       when status in [200, 206] ->
-        name |> from_headers(headers) |> content(status, body)
+        received(from_headers(name, headers), body, status)
 
       {:ok, _sofa, %Sofa.Response{status: 304}} ->
         {:ok, :not_modified}
@@ -173,9 +277,6 @@ defmodule Sofa.Attachment do
 
   ## Writing, with the document first so uploads pipe
 
-  @typedoc "Content to upload: in memory, from a file, or any enumerable of binaries"
-  @type content :: binary() | {:file, Path.t()} | Enumerable.t()
-
   @doc """
   Uploads content as an attachment in its own request, and returns the
   document with its new revision and the attachment's stub, ready for the
@@ -185,8 +286,8 @@ defmodule Sofa.Attachment do
   existing document. A document without one, or a bare id, is created by
   the upload, as the docs describe. Content is a binary, `{:file, path}`
   streamed from disk, or any enumerable of binaries sent as a chunked
-  upload. The returned stub has no digest, as CouchDB computes it over
-  the bytes it stores, which may be compressed.
+  upload. The returned stub has no digest, as CouchDB computes that over
+  the bytes it stores, which it may compress first.
 
   ## Options
 
@@ -276,7 +377,35 @@ defmodule Sofa.Attachment do
     end
   end
 
-  ## request plumbing
+  ## Request plumbing
+
+  # the body as served: verified when whole, then decompressed if gzipped
+  @spec received(t(), term(), 200 | 206) :: {:ok, t()} | {:error, :digest_mismatch}
+  defp received(att = %__MODULE__{digest: digest}, body, 200)
+       when is_binary(body) and is_binary(digest) do
+    if digest(body) == digest, do: decoded(att, body), else: {:error, :digest_mismatch}
+  end
+
+  defp received(att = %__MODULE__{}, body, _status) when is_binary(body), do: decoded(att, body)
+
+  # a sink's result, decompressed by Req. The headers described the stored form
+  defp received(att = %__MODULE__{}, sink, _status),
+    do: {:ok, %{att | data: sink, encoding: nil, length: nil}}
+
+  @spec decoded(t(), binary()) :: {:ok, t()}
+  defp decoded(att = %__MODULE__{encoding: "gzip"}, body) do
+    data = :zlib.gunzip(body)
+    {:ok, %{att | data: data, length: byte_size(data), encoded_length: byte_size(body)}}
+  end
+
+  defp decoded(att = %__MODULE__{}, body), do: {:ok, %{att | data: body, length: byte_size(body)}}
+
+  @spec path(String.t(), doc_ref(), String.t()) :: String.t()
+  defp path(db, doc, name), do: Cushion.path([db, id(doc), name])
+
+  @spec id(doc_ref()) :: String.t()
+  defp id(%Sofa.Doc{id: id}), do: id
+  defp id(id) when is_binary(id), do: id
 
   @spec rev(doc_ref()) :: String.t() | nil
   defp rev(%Sofa.Doc{rev: rev}), do: rev
@@ -285,32 +414,6 @@ defmodule Sofa.Attachment do
   @spec to_doc(doc_ref()) :: Sofa.Doc.t()
   defp to_doc(doc = %Sofa.Doc{}), do: doc
   defp to_doc(id) when is_binary(id), do: Sofa.Doc.new(id)
-
-  @spec if_match(String.t() | nil) :: [{String.t(), String.t()}]
-  defp if_match(nil), do: []
-  defp if_match(rev), do: [{"if-match", rev}]
-
-  # the revision number an attachment was added in is the new rev's prefix
-  @spec revpos(String.t()) :: pos_integer()
-  defp revpos(rev), do: rev |> String.split("-", parts: 2) |> hd() |> String.to_integer()
-
-  # a binary goes as the body. Files and enumerables stream as chunked uploads
-  @spec upload(content()) :: {binary(), keyword()}
-  defp upload(content) when is_binary(content), do: {content, []}
-  defp upload({:file, path}), do: {"", [body: File.stream!(path, 64_000)]}
-  defp upload(enumerable), do: {"", [body: enumerable]}
-
-  @spec size(content()) :: non_neg_integer() | nil
-  defp size(content) when is_binary(content), do: byte_size(content)
-  defp size({:file, path}), do: File.stat!(path).size
-  defp size(_enumerable), do: nil
-
-  @spec path(String.t(), doc_ref(), String.t()) :: String.t()
-  defp path(db, doc, name), do: Cushion.path([db, id(doc), name])
-
-  @spec id(doc_ref()) :: String.t()
-  defp id(%Sofa.Doc{id: id}), do: id
-  defp id(id) when is_binary(id), do: id
 
   @spec params(keyword()) :: keyword()
   defp params(opts), do: Keyword.take(opts, [:rev])
@@ -329,8 +432,19 @@ defmodule Sofa.Attachment do
     end)
   end
 
+  # raw: true also skips Req's own Accept-Encoding, so ask for the stored
+  # form explicitly. Without it CouchDB inflates on the fly, and the ETag,
+  # which digests the stored bytes, no longer matches the body
+  @spec stored(keyword()) :: [{String.t(), String.t()}]
+  defp stored(opts), do: [{"accept-encoding", "gzip"} | headers(opts)]
+
+  @spec if_match(String.t() | nil) :: [{String.t(), String.t()}]
+  defp if_match(nil), do: []
+  defp if_match(rev), do: [{"if-match", rev}]
+
   # the ETag is the base64 MD5, which the stubs carry with an md5- prefix.
-  # For compressed content the length is the stored size, so it is encoded_length
+  # Content-Length is the stored size, so it is the plain length only when
+  # nothing was compressed
   @spec from_headers(String.t(), map()) :: t()
   defp from_headers(name, headers) do
     encoding = headers[:content_encoding]
@@ -345,134 +459,28 @@ defmodule Sofa.Attachment do
     }
   end
 
-  # whole content is verified as stored, then decompressed. Parts and sinks are taken as-is
-  @spec content(t(), 200 | 206, term()) :: {:ok, t()} | {:error, :digest_mismatch}
-  defp content(att = %__MODULE__{digest: digest}, 200, body) when is_binary(body) do
-    if digest in [nil, digest(body)],
-      do: {:ok, inflate(att, body)},
-      else: {:error, :digest_mismatch}
-  end
+  # the revision number an attachment was added in is the new rev's prefix
+  @spec revpos(String.t()) :: pos_integer()
+  defp revpos(rev), do: rev |> String.split("-", parts: 2) |> hd() |> String.to_integer()
 
-  defp content(att, _status, body) when is_binary(body),
-    do: {:ok, %{att | data: body, length: byte_size(body)}}
+  # a binary goes as the body. Files and enumerables stream as chunked uploads
+  @spec upload(content()) :: {binary(), keyword()}
+  defp upload(content) when is_binary(content), do: {content, []}
+  defp upload({:file, path}), do: {"", [body: File.stream!(path, 64_000)]}
+  defp upload(enumerable), do: {"", [body: enumerable]}
 
-  defp content(att, _status, sink), do: {:ok, %{att | data: sink}}
-
-  @spec inflate(t(), binary()) :: t()
-  defp inflate(att = %__MODULE__{encoding: "gzip"}, body) do
-    data = :zlib.gunzip(body)
-    %{att | data: data, length: byte_size(data), encoded_length: byte_size(body)}
-  end
-
-  defp inflate(att, body), do: %{att | data: body, length: byte_size(body)}
+  @spec size(content()) :: non_neg_integer() | nil
+  defp size(content) when is_binary(content), do: byte_size(content)
+  defp size({:file, path}), do: File.stat!(path).size
+  defp size(_enumerable), do: nil
 
   # the usual atoms for the documented statuses. Anything else is returned whole
   @spec error({:ok, Sofa.t(), Sofa.Response.t()} | {:error, term()}) :: {:error, error()}
-  defp error({:ok, _sofa, response = %Sofa.Response{}}), do: {:error, status(response)}
-  defp error({:error, response = %Sofa.Response{}}), do: {:error, status(response)}
+  defp error({:ok, _sofa, response = %Sofa.Response{}}),
+    do: {:error, Sofa.Response.error(response)}
+
+  defp error({:error, response = %Sofa.Response{}}), do: {:error, Sofa.Response.error(response)}
   defp error({:error, reason}), do: {:error, reason}
-
-  @spec status(Sofa.Response.t()) :: error()
-  defp status(%Sofa.Response{status: 400}), do: :bad_request
-  defp status(%Sofa.Response{status: 401}), do: :unauthorized
-  defp status(%Sofa.Response{status: 403}), do: :forbidden
-  defp status(%Sofa.Response{status: 404}), do: :not_found
-  defp status(%Sofa.Response{status: 409}), do: :conflict
-  defp status(response = %Sofa.Response{}), do: response
-
-  @doc """
-  An attachment with content, ready to be attached to a document.
-
-  The content type comes from the name via `MIME.from_path/1`, falling back
-  to `application/octet-stream`, unless given as `content_type:`. The
-  length is computed from the content. The digest is left to CouchDB,
-  which computes it over the bytes it stores, compressed or not.
-  """
-  @spec new(String.t(), binary(), keyword()) :: t()
-  def new(name, data, opts \\ []) when is_binary(name) and is_binary(data) and is_list(opts) do
-    %__MODULE__{
-      name: name,
-      content_type: Keyword.get(opts, :content_type) || MIME.from_path(name),
-      length: byte_size(data),
-      data: data
-    }
-  end
-
-  @doc """
-  The `md5-` digest CouchDB reports for content.
-
-  CouchDB computes it over the bytes as stored, so for attachments it
-  stored compressed (see `encoding`) it matches the compressed form, not
-  the original content.
-
-      iex> Sofa.Attachment.digest("My hovercraft is full of eels!")
-      "md5-uoLJeG8NfCWNzP/3AI2Ytw=="
-  """
-  @spec digest(binary()) :: digest()
-  def digest(data) when is_binary(data), do: "md5-" <> Base.encode64(:crypto.hash(:md5, data))
-
-  @doc """
-  Whether the content matches the digest. `false` when either is missing,
-  or when CouchDB stored the content compressed, as the digest is then of
-  the compressed bytes. `get/4` verifies those as they arrive.
-
-      iex> att = Sofa.Attachment.new("a.txt", "eels")
-      iex> %Sofa.Attachment{att | digest: Sofa.Attachment.digest("eels")} |> Sofa.Attachment.verified?()
-      true
-      iex> %Sofa.Attachment{name: "a", content_type: "text/plain"} |> Sofa.Attachment.verified?()
-      false
-  """
-  @spec verified?(t()) :: boolean()
-  def verified?(%__MODULE__{data: data, digest: digest, encoding: nil})
-      when is_binary(data) and is_binary(digest),
-      do: digest(data) == digest
-
-  def verified?(%__MODULE__{}), do: false
-
-  @doc """
-  Builds an attachment from one entry of a document's `_attachments`.
-
-  Inline `data` is base64 decoded. A stub keeps `data` as `nil`.
-  """
-  @spec from_stub(String.t(), map()) :: t()
-  def from_stub(name, stub = %{"content_type" => content_type}) when is_binary(name) do
-    data = decode(stub["data"])
-
-    %__MODULE__{
-      name: name,
-      content_type: content_type,
-      digest: stub["digest"],
-      length: stub["length"] || (data && byte_size(data)),
-      revpos: stub["revpos"],
-      encoding: stub["encoding"],
-      encoded_length: stub["encoded_length"],
-      data: data
-    }
-  end
-
-  @doc """
-  The `_attachments` entry for an attachment: inline, with the content
-  base64 encoded, when it has content, otherwise a stub that tells CouchDB
-  to keep the attachment it already has. Keys CouchDB did not report are
-  left out.
-  """
-  @spec to_stub(t()) :: map()
-  def to_stub(%__MODULE__{content_type: content_type, data: data}) when is_binary(data) do
-    %{"content_type" => content_type, "data" => Base.encode64(data)}
-  end
-
-  def to_stub(att = %__MODULE__{content_type: content_type}) do
-    %{
-      "content_type" => content_type,
-      "digest" => att.digest,
-      "length" => att.length,
-      "revpos" => att.revpos,
-      "encoding" => att.encoding,
-      "encoded_length" => att.encoded_length,
-      "stub" => true
-    }
-    |> Map.reject(fn {_key, value} -> value == nil end)
-  end
 
   @spec decode(String.t() | nil) :: binary() | nil
   defp decode(nil), do: nil
