@@ -56,7 +56,7 @@ defmodule Sofa.Changes do
   linked `Sofa.Changes.Worker`. Chunks of the feed are delivered as
   messages to the follower, so `c:handle_change/2` is single threaded and
   ordered. Rows are passed through as decoded maps, see
-  `Sofa.Changes.Parser`.
+  `Sofa.Changes.Parser` for details.
 
   The follower remembers the `seq` of every delivered row, and the
   `last_seq` a response ends with. When the server ends the response, as it
@@ -64,13 +64,19 @@ defmodule Sofa.Changes do
   follower reconnects with `since` set to that sequence, after a random
   delay of up to 500 ms so that many followers do not reconnect at once.
   Sequences are opaque and never parsed. Because shards can move, a change
-  may occasionally be delivered twice. CouchDB documents this, so
+  may occasionally be delivered twice. CouchDB documents this, so your
   `c:handle_change/2` should be idempotent.
 
   Should the server reject an advanced `since` with a 400, the follower
   retries once from the last sequence the server did accept, the one it
   sent on the previous successful request. If that is rejected too, or
   there is no such sequence, the follower stops with reason `:bad_request`.
+
+  A watchdog restarts the connection when nothing (not even a heartbeat),
+  has arrived for twice the `heartbeat` interval. Client-side receive
+  timeouts, dropped connections and a crashed connection process restart
+  the stream the same way, from the last sequence, without involving
+  `c:handle_error/2`.
 
   ## Errors
 
@@ -250,7 +256,9 @@ defmodule Sofa.Changes do
     lkg: nil,
     fallback: nil,
     # a pending reconnect timer, or :infinity while waiting for retry_now/1
-    retry: nil
+    retry: nil,
+    # the heartbeat watchdog timer for the current request
+    watchdog: nil
   ]
 
   @typedoc "The follower's internal state, visible via `:sys.get_state/1`"
@@ -267,7 +275,8 @@ defmodule Sofa.Changes do
           connected: boolean(),
           lkg: Query.since(),
           fallback: Query.since(),
-          retry: reference() | :infinity | nil
+          retry: reference() | :infinity | nil,
+          watchdog: reference() | nil
         }
 
   @jitter 500
@@ -387,7 +396,7 @@ defmodule Sofa.Changes do
   @impl GenServer
   def handle_info({ref, :data, chunk}, state = %__MODULE__{ref: ref, buffer: buffer}) do
     {events, buffer} = Parser.feed(buffer, chunk)
-    deliver(events, %{connected(state) | buffer: buffer})
+    deliver(events, %{(state |> connected() |> watchdog()) | buffer: buffer})
   end
 
   def handle_info(
@@ -436,12 +445,27 @@ defmodule Sofa.Changes do
     state |> stop_stream() |> handle_error(reason(status))
   end
 
+  # a connection that timed out or dropped mid-stream is simply reopened
+  def handle_info(
+        {ref, :error, %Req.TransportError{reason: reason}},
+        state = %__MODULE__{ref: ref}
+      )
+      when reason in [:timeout, :closed] do
+    Logger.warning("#{inspect(state.module)}: _changes connection #{reason}, will reconnect")
+    {:noreply, state |> stop_stream() |> schedule(0)}
+  end
+
   def handle_info({ref, :error, exception}, state = %__MODULE__{ref: ref}) do
     Logger.warning(
       "#{inspect(state.module)}: _changes request failed: #{Exception.message(exception)}"
     )
 
     state |> stop_stream() |> handle_error({:conn_failed, reason(exception)})
+  end
+
+  def handle_info({:"$sofa_changes", :watchdog, ref}, state = %__MODULE__{ref: ref}) do
+    Logger.warning("#{inspect(state.module)}: no heartbeat from _changes, will reconnect")
+    {:noreply, state |> stop_stream() |> schedule(0)}
   end
 
   # workers exit normally after their :done or :error message, or killed by
@@ -508,7 +532,28 @@ defmodule Sofa.Changes do
 
     worker = Worker.start_link(self(), ref, db, query)
     workers = Map.put(state.workers, worker, true)
+
     %{state | ref: ref, worker: worker, workers: workers, buffer: "", connected: false}
+    |> watchdog()
+  end
+
+  # (re)arms the watchdog: with a heartbeat, silence for twice its interval
+  # means the connection is dead. Without one, the server's timeout applies
+  @spec watchdog(t()) :: t()
+  defp watchdog(state = %__MODULE__{query: %Query{heartbeat: nil}}), do: state
+
+  defp watchdog(state = %__MODULE__{query: %Query{heartbeat: heartbeat}, ref: ref}) do
+    state = cancel_watchdog(state)
+    timer = Process.send_after(self(), {:"$sofa_changes", :watchdog, ref}, heartbeat * 2)
+    %{state | watchdog: timer}
+  end
+
+  @spec cancel_watchdog(t()) :: t()
+  defp cancel_watchdog(state = %__MODULE__{watchdog: nil}), do: state
+
+  defp cancel_watchdog(state = %__MODULE__{watchdog: timer}) do
+    _remaining = Process.cancel_timer(timer)
+    %{state | watchdog: nil}
   end
 
   # The server accepted this request's `since`, so remember it as the last
@@ -525,14 +570,14 @@ defmodule Sofa.Changes do
   # kills the worker, which closes the connection. Its messages become stale,
   # and its exit signal, still linked, prunes it from the workers map
   @spec stop_stream(t()) :: t()
-  defp stop_stream(state = %__MODULE__{worker: nil}), do: state
+  defp stop_stream(state = %__MODULE__{worker: nil}), do: cancel_watchdog(state)
 
   defp stop_stream(state = %__MODULE__{worker: worker}) do
     Process.exit(worker, :kill)
-    %{state | worker: nil, ref: nil, buffer: ""}
+    %{cancel_watchdog(state) | worker: nil, ref: nil, buffer: ""}
   end
 
-  # reconnects after `delay` plus jitter, so a fleet of followers staggers
+  # reconnects after `delay` plus jitter
   @spec schedule(t(), non_neg_integer()) :: t()
   defp schedule(state = %__MODULE__{}, delay) do
     ref = make_ref()

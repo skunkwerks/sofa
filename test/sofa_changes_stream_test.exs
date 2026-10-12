@@ -279,6 +279,67 @@ defmodule SofaChangesStreamTest do
     end
   end
 
+  describe "resilience" do
+    test "missing heartbeats restart the stream", %{couch: couch, db: db} do
+      streaming(couch, self(), [], heartbeat: :infinity)
+      follow(db, heartbeat: 100)
+
+      assert_receive {:changes_request, _}, 1000
+      assert_receive {:changes_request, _}, 2000
+    end
+
+    test "regular heartbeats keep the stream alive", %{couch: couch, db: db} do
+      # the watchdog fires after twice the heartbeat, so leave it room for a
+      # few late beats from the fake while the rest of the suite runs
+      streaming(couch, self(), [], heartbeat: 50)
+      follow(db, heartbeat: 200)
+
+      assert_receive {:changes_request, _}, 1000
+      refute_receive {:changes_request, _}, 800
+      refute_received {:error, _}
+    end
+
+    test "without a heartbeat the watchdog is off and the server timeout applies", %{
+      couch: couch,
+      db: db
+    } do
+      streaming(couch, self(), [], heartbeat: :infinity)
+      follower = follow(db, heartbeat: nil, timeout: 500)
+
+      assert_receive {:changes_request, %{query: query}}, 1000
+      refute Map.has_key?(query, "heartbeat")
+      assert %Changes{watchdog: nil} = :sys.get_state(follower)
+      refute_receive {:changes_request, _}, 600
+    end
+
+    test "the death of the connection process restarts the stream", %{couch: couch, db: db} do
+      streaming(couch, self())
+      follower = follow(db)
+
+      assert_receive {:changes_request, _}, 1000
+      %Changes{worker: worker} = :sys.get_state(follower)
+      assert is_pid(worker)
+
+      Process.exit(worker, :kill)
+      assert_receive {:changes_request, _}, 2000
+      refute_received {:error, _}
+    end
+
+    test "a connection dropped mid-stream is reopened without an error", %{couch: couch, db: db} do
+      streaming(couch, self(), [row("a", 1, "1-a")])
+      follow(db, heartbeat: 10_000)
+
+      assert_receive {:change, %{"id" => "a"}, 1}, 1000
+      Bypass.down(couch.bypass)
+
+      # the drop itself is not an error, the refused reconnect is
+      assert_receive {:error, {:conn_failed, :econnrefused}}, 2000
+      Bypass.up(couch.bypass)
+      assert_receive {:changes_request, %{query: %{"since" => since}}}, 3000
+      assert since == seq(1)
+    end
+  end
+
   describe "stopping" do
     test "stop/1 calls terminate/2 and tears down the connection process", %{couch: couch, db: db} do
       streaming(couch, self())
