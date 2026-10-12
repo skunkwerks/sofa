@@ -279,6 +279,92 @@ defmodule SofaChangesStreamTest do
     end
   end
 
+  describe "normal and longpoll responses" do
+    # answers the first request with `first`, later ones with an empty batch
+    defp batches(couch, pid, first) do
+      FakeCouch.expect_changes(couch, fn conn ->
+        conn = FakeCouch.report(conn, pid)
+
+        case conn.query_params["since"] do
+          nil -> FakeCouch.json(conn, 200, first)
+          since -> FakeCouch.respond(conn, [], since)
+        end
+      end)
+    end
+
+    test "longpoll results are delivered as a batch, then polling resumes from last_seq", %{
+      couch: couch,
+      db: db
+    } do
+      batches(couch, self(), CouchFixtures.normal_feed())
+      follow(db, longpoll: true)
+
+      assert_receive {:changes_request, %{query: %{"feed" => "longpoll"} = query}}, 1000
+      refute Map.has_key?(query, "longpoll")
+      assert_receive {:change, %{"id" => "fresh", "changes" => [%{"rev" => "1-" <> _}]}, 1}, 1000
+      assert_receive {:change, %{"id" => "updated"}, 2}, 1000
+      assert_receive {:change, %{"id" => "deleted", "deleted" => true}, 3}, 1000
+      assert_receive {:changes_request, %{query: %{"since" => since}}}, 2000
+      assert since == seq(5)
+    end
+
+    test "an empty longpoll response (timeout) reconnects with the same since", %{
+      couch: couch,
+      db: db
+    } do
+      pid = self()
+
+      FakeCouch.expect_changes(couch, fn conn ->
+        conn
+        |> FakeCouch.report(pid)
+        |> FakeCouch.respond([], conn.query_params["since"] || seq(2))
+      end)
+
+      follow(db, longpoll: true, since: seq(2))
+
+      assert_receive {:changes_request, %{query: %{"since" => s1}}}, 1000
+      assert_receive {:changes_request, %{query: %{"since" => s2}}}, 2000
+      assert s1 == seq(2)
+      assert s2 == seq(2)
+      refute_received {:change, _, _}
+    end
+
+    test "style=all_docs rows list every leaf revision", %{couch: couch, db: db} do
+      batches(couch, self(), %{
+        "results" => [CouchFixtures.all_docs_row()],
+        "last_seq" => seq(5),
+        "pending" => 0
+      })
+
+      follow(db, longpoll: true, style: :all_docs)
+
+      assert_receive {:changes_request, %{query: %{"style" => "all_docs"}}}, 1000
+
+      assert_receive {:change, %{"changes" => [%{"rev" => "6-" <> _}, %{"rev" => "5-" <> _}]}, 1},
+                     1000
+    end
+
+    test "feed=normal returns all past changes once and does not reconnect", %{
+      couch: couch,
+      db: db
+    } do
+      pid = self()
+
+      FakeCouch.expect_changes(couch, fn conn ->
+        conn |> FakeCouch.report(pid) |> FakeCouch.respond(CouchFixtures.normal_rows(), seq(5))
+      end)
+
+      follower = follow(db, feed: :normal)
+
+      assert_receive {:changes_request, %{query: %{"feed" => "normal"}}}, 1000
+      assert_receive {:change, %{"id" => "deleted"}, 3}, 1000
+      refute_receive {:changes_request, _}, 1000
+      assert %Changes{worker: nil, query: %{since: since}} = :sys.get_state(follower)
+      assert since == seq(5)
+      assert Process.alive?(follower)
+    end
+  end
+
   describe "resilience" do
     test "missing heartbeats restart the stream", %{couch: couch, db: db} do
       streaming(couch, self(), [], heartbeat: :infinity)

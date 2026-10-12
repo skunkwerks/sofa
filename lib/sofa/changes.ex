@@ -56,15 +56,17 @@ defmodule Sofa.Changes do
   linked `Sofa.Changes.Worker`. Chunks of the feed are delivered as
   messages to the follower, so `c:handle_change/2` is single threaded and
   ordered. Rows are passed through as decoded maps, see
-  `Sofa.Changes.Parser` for details.
+  `Sofa.Changes.Parser`.
 
   The follower remembers the `seq` of every delivered row, and the
   `last_seq` a response ends with. When the server ends the response, as it
   does on its `timeout`, on `limit`, or after each longpoll batch, the
   follower reconnects with `since` set to that sequence, after a random
   delay of up to 500 ms so that many followers do not reconnect at once.
+  With `feed: :normal` the single batch is delivered and the follower then
+  stays idle, which suits a one-off catch-up.
   Sequences are opaque and never parsed. Because shards can move, a change
-  may occasionally be delivered twice. CouchDB documents this, so your
+  may occasionally be delivered twice. CouchDB documents this, so
   `c:handle_change/2` should be idempotent.
 
   Should the server reject an advanced `since` with a 400, the follower
@@ -72,8 +74,9 @@ defmodule Sofa.Changes do
   sent on the previous successful request. If that is rejected too, or
   there is no such sequence, the follower stops with reason `:bad_request`.
 
-  A watchdog restarts the connection when nothing (not even a heartbeat),
-  has arrived for twice the `heartbeat` interval. Client-side receive
+  A watchdog restarts the connection when nothing, not even a heartbeat,
+  has arrived for twice the `heartbeat` interval, which catches half-open
+  TCP connections the server will never notice. Client-side receive
   timeouts, dropped connections and a crashed connection process restart
   the stream the same way, from the last sequence, without involving
   `c:handle_error/2`.
@@ -409,11 +412,9 @@ defmodule Sofa.Changes do
         _batch -> Parser.batch(body)
       end
 
-    Logger.debug("#{inspect(state.module)}: response ended, will reconnect")
-
     case deliver(events, %{connected(state) | buffer: ""}) do
-      {:noreply, state} -> {:noreply, state |> stop_stream() |> schedule(0)}
-      {:noreply, state, timeout} -> {:noreply, state |> stop_stream() |> schedule(0), timeout}
+      {:noreply, state} -> {:noreply, ended(state)}
+      {:noreply, state, timeout} -> {:noreply, ended(state), timeout}
       stop -> stop
     end
   end
@@ -537,6 +538,18 @@ defmodule Sofa.Changes do
     |> watchdog()
   end
 
+  # a normal feed is a one-off batch. The others reconnect from the last seq
+  @spec ended(t()) :: t()
+  defp ended(state = %__MODULE__{query: %Query{feed: :normal}}) do
+    Logger.debug("#{inspect(state.module)}: normal feed delivered, not reconnecting")
+    stop_stream(state)
+  end
+
+  defp ended(state = %__MODULE__{}) do
+    Logger.debug("#{inspect(state.module)}: response ended, will reconnect")
+    state |> stop_stream() |> schedule(0)
+  end
+
   # (re)arms the watchdog: with a heartbeat, silence for twice its interval
   # means the connection is dead. Without one, the server's timeout applies
   @spec watchdog(t()) :: t()
@@ -577,7 +590,7 @@ defmodule Sofa.Changes do
     %{cancel_watchdog(state) | worker: nil, ref: nil, buffer: ""}
   end
 
-  # reconnects after `delay` plus jitter
+  # reconnects after `delay` plus jitter, so a fleet of followers staggers
   @spec schedule(t(), non_neg_integer()) :: t()
   defp schedule(state = %__MODULE__{}, delay) do
     ref = make_ref()

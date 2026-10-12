@@ -123,6 +123,19 @@ defmodule Sofa.Changes.Query do
   def params(%__MODULE__{params: params, since: nil}), do: params
   def params(%__MODULE__{params: params, since: since}), do: params ++ [{"since", value(since)}]
 
+  @doc """
+  Whether rows will carry the document under `"doc"`.
+
+  ## Examples
+
+      iex> Sofa.Changes.Query.new(include_docs: true) |> Sofa.Changes.Query.include_docs?()
+      true
+      iex> Sofa.Changes.Query.new([]) |> Sofa.Changes.Query.include_docs?()
+      false
+  """
+  @spec include_docs?(t()) :: boolean()
+  def include_docs?(%__MODULE__{params: params}), do: {"include_docs", "true"} in params
+
   @doc "Advances `since`, as after a delivered row or a `last_seq`."
   @spec since(t(), since()) :: t()
   def since(query = %__MODULE__{}, since), do: %{query | since: since}
