@@ -24,7 +24,7 @@ defmodule Sofa do
   defstruct [
     # auth specific headers such as Bearer, Basic
     :auth,
-    # re-usable tesla HTTP client
+    # re-usable Req HTTP client
     :client,
     # optional database field
     :database,
@@ -44,7 +44,7 @@ defmodule Sofa do
 
   @type t :: %__MODULE__{
           auth: any,
-          client: nil | Tesla.Client.t(),
+          client: nil | Req.Request.t(),
           database: nil | binary,
           features: nil | list,
           timeout: nil | integer,
@@ -104,41 +104,47 @@ defmodule Sofa do
   end
 
   @doc """
-  Builds Tesla runtime client, with appropriate middleware header credentials,
-  from supplied %Sofa{} struct.
+  Builds a reusable `Req.Request` HTTP client, with basic auth credentials
+  taken from the URI, and stores it in the supplied `%Sofa{}` struct.
 
-  An optional Tesla adapter, such as `Tesla.Adapter.Mint` or
-  `{Tesla.Adapter.Mint, transport_opts: [inet6: true]}`, overrides the
-  adapter configured for `:tesla` in your application config. This is handy
-  for running integration tests against a real CouchDB while unit tests
-  keep using `Tesla.Mock`.
+  Any `Req.new/1` options may be passed to override the defaults, for example
+  `receive_timeout: 5_000`, `plug: MyPlug` for `Req.Test`, or `inet6: false`
+  to disable the default IPv6-first, IPv4-fallback connection behaviour.
+
+  Retries are disabled, as CouchDB responses are expected to be fast and
+  callers typically want to see errors immediately.
   """
-  @spec client(Sofa.t(), nil | module() | {module(), keyword()}) :: Sofa.t()
-  def client(couch = %Sofa{uri: uri}, adapter \\ nil) do
+  @spec client(Sofa.t(), keyword()) :: Sofa.t()
+  def client(couch = %Sofa{uri: uri}, opts \\ []) when is_list(opts) do
     couch_url = uri.scheme <> "://" <> uri.host <> ":#{uri.port}/"
 
-    # only attach BasicAuth when credentials are actually present, otherwise
-    # Tesla sends an empty `Basic Og==` header and CouchDB rejects the request
-    # instead of treating it as an anonymous one
+    # only send credentials when they are actually present, otherwise an
+    # empty `Basic Og==` header is rejected by CouchDB instead of being
+    # treated as an anonymous request
     auth =
       case auth_info(uri.userinfo) do
-        %{username: _, password: _} = creds -> [{Tesla.Middleware.BasicAuth, creds}]
+        %{username: user, password: password} -> [auth: {:basic, user <> ":" <> password}]
         _ -> []
       end
 
-    middleware =
-      [
-        {Tesla.Middleware.BaseUrl, couch_url},
-        Tesla.Middleware.JSON
-      ] ++ auth
+    defaults = [
+      base_url: couch_url,
+      # CouchDB only replies with application/json when asked to
+      headers: [accept: "application/json"],
+      receive_timeout: @default_timeout,
+      retry: false,
+      # try IPv6 first, falling back to IPv4. Req merges this into the Mint
+      # transport options, so `connect_options` stays free for callers
+      inet6: true
+    ]
 
-    client = Tesla.client(middleware, adapter)
+    client = Req.new(Keyword.merge(defaults ++ auth, opts))
     %Sofa{couch | client: client, timeout: @default_timeout}
   end
 
   @doc """
   Returns user & password credentials extracted from a typical %URI{} userinfo
-  field, as a Tesla-compatible authorization header. Currently only supports
+  field, as basic auth credentials. Currently only supports
   BasicAuth user:password combination.
 
   ## Examples
@@ -179,14 +185,11 @@ defmodule Sofa do
   end
 
   def connect(couch = %Sofa{}) do
-    case result = Tesla.get(couch.client, "/") do
-      {:error, _} ->
-        result
+    case raw(couch, "/") do
+      {:error, reason} ->
+        {:error, reason}
 
-      {:ok, resp = %{body: %{"error" => _error, "reason" => _reason}}} ->
-        {:error, resp}
-
-      {:ok, resp} ->
+      {:ok, _sofa, resp} ->
         {:ok,
          %Sofa{
            couch
@@ -199,7 +202,7 @@ defmodule Sofa do
   end
 
   @doc """
-  Bang! wrapper around Sofa.connect/1; raises exceptions on error.
+  Bang! wrapper around Sofa.connect/1. Raises exceptions on error.
   """
   @spec connect!(String.t() | Sofa.t()) :: Sofa.t()
   def connect!(sofa) when is_binary(sofa) do
@@ -212,9 +215,6 @@ defmodule Sofa do
     case connect(sofa) do
       {:ok, resp} ->
         resp
-
-      {:error, :econnrefused} ->
-        raise Sofa.Error, "connection refused to " <> url
 
       {:error, %{reason: :econnrefused}} ->
         raise Sofa.Error, "connection refused to " <> url
@@ -250,14 +250,20 @@ defmodule Sofa do
   @doc """
   Minimal wrapper around native CouchDB HTTP API, allowing an escape hatch
   for raw functionality, and as the core abstraction layer for Sofa itself.
+
+  A map `body` is sent as JSON, a binary body is sent as-is. JSON responses
+  are decoded into maps, and CouchDB error responses, those with both an
+  `error` and a `reason` key, are returned as `{:error, %Sofa.Response{}}`.
+  Transport failures such as `:econnrefused` or `:timeout` are returned as
+  `{:error, %Req.TransportError{}}`.
   """
   @spec raw(
           Sofa.t(),
-          Tesla.Env.url(),
-          Tesla.Env.method(),
-          Tesla.Env.opts(),
-          Tesla.Env.body(),
-          Tesla.Env.headers()
+          String.t(),
+          atom(),
+          keyword() | map(),
+          map() | binary(),
+          [{String.t(), String.t()}] | map()
         ) ::
           {:error, any()} | {:ok, Sofa.t(), Sofa.Response.t()}
   def raw(
@@ -268,57 +274,58 @@ defmodule Sofa do
         body \\ "",
         headers \\ []
       ) do
-    # each Tesla adapter handles "empty" options differently - some
-    # expect nil, others "", and some expect the key:value to be missing
-    case Tesla.request(sofa.client,
-           url: path,
-           method: method,
-           query: query,
-           headers: headers,
-           body: body,
-           opts: [adapter: [timeout: timeout]]
-         ) do
-      {:ok, resp = %{body: %{"error" => _error, "reason" => _reason}}} ->
-        {:error,
-         %Sofa.Response{
-           body: resp.body,
-           url: resp.url,
-           query: resp.query,
-           method: resp.method,
-           headers: Sofa.Cushion.untaint_headers(resp.headers),
-           status: resp.status
-         }}
+    request =
+      Req.merge(
+        sofa.client,
+        [
+          url: "/" <> String.trim_leading(path, "/"),
+          method: method,
+          params: query,
+          headers: headers,
+          receive_timeout: timeout || @default_timeout
+        ] ++ body_opts(body)
+      )
 
-      {:ok, %{} = resp} ->
-        {:ok, sofa,
-         %Sofa.Response{
-           body: resp.body,
-           url: resp.url,
-           query: resp.query,
-           method: resp.method,
-           headers: Sofa.Cushion.untaint_headers(resp.headers),
-           status: resp.status
-         }}
+    case Req.Request.run_request(request) do
+      {request, %Req.Response{} = resp} ->
+        response = %Sofa.Response{
+          body: resp.body,
+          url: URI.to_string(request.url),
+          query: query,
+          method: method,
+          headers: Sofa.Cushion.untaint_headers(resp.headers),
+          status: resp.status
+        }
 
-      {:error, reason} ->
+        case resp.body do
+          %{"error" => _error, "reason" => _reason} -> {:error, response}
+          _ -> {:ok, sofa, response}
+        end
+
+      {_request, exception} ->
         # transport-level failures such as :econnrefused, :timeout, or a
-        # %Mint.TransportError{}; the bang! variants raise on these instead
-        Logger.debug("transport error in #{method} #{path} #{inspect(reason)}")
-        {:error, reason}
+        # closed connection. The bang! variants raise on these instead
+        Logger.debug("transport error in #{method} #{path} #{inspect(exception)}")
+        {:error, exception}
     end
   end
 
+  # a map is sent as JSON. An empty binary means no body at all
+  defp body_opts(""), do: []
+  defp body_opts(body) when is_map(body), do: [json: body]
+  defp body_opts(body) when is_binary(body), do: [body: body]
+
   @doc """
-  Bang! wrapper around Sofa.raw/1; raises exceptions on error.
+  Bang! wrapper around Sofa.raw/1 raises exceptions on error.
   """
   @spec raw!(
           Sofa.t(),
-          Tesla.Env.url(),
-          Tesla.Env.method(),
-          Tesla.Env.opts(),
-          Tesla.Env.body()
+          String.t(),
+          atom(),
+          keyword() | map(),
+          map() | binary()
         ) :: Sofa.Response.t()
-  def raw!(sofa = %Sofa{}, path \\ "", method \\ :get, query \\ [], body \\ %{}) do
+  def raw!(sofa = %Sofa{}, path \\ "", method \\ :get, query \\ [], body \\ "") do
     case raw(sofa, path, method, query, body) do
       {:ok, %Sofa{}, response = %Sofa.Response{}} ->
         response

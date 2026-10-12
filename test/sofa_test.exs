@@ -1,43 +1,31 @@
 defmodule SofaTest do
   use ExUnit.Case, async: true
 
-  @plain_url "http://localhost:5984/"
-  @plain_sofa Sofa.init(@plain_url) |> Sofa.client()
-  @admin_password "admin:passwd"
-  @admin_url "http://" <> @admin_password <> "@localhost:5984/"
-  @admin_sofa Sofa.init(@admin_url) |> Sofa.client()
-  @admin_header [{"authorization", "Basic " <> Base.encode64(@admin_password)}]
-  @refused_url "http://localhost:1/"
-
-  import Tesla.Mock
+  import Sofa.BypassHelpers
 
   setup do
-    mock(fn
-      # required for Sofa.connect!/1 in all tests
-      %{method: :get, url: @plain_url} ->
-        %Tesla.Env{status: 200, body: fixture("init_200.json")}
+    %{bypass: bypass} = plain = start()
+    admin = start(admin())
 
-      %{method: :get, url: @plain_url <> "_up"} ->
-        %Tesla.Env{method: :get, status: 200, body: fixture("up_200.json")}
+    # the same fake CouchDB answers both the anonymous and the admin client
+    for b <- [bypass, admin.bypass] do
+      Bypass.stub(b, "GET", "/", &json(&1, 200, "init_200.json"))
+      Bypass.stub(b, "GET", "/_up", &json(&1, 200, "up_200.json"))
 
-      %{method: :get, url: @plain_url <> "_active_tasks"} ->
-        %Tesla.Env{method: :get, status: 401, body: fixture("active_tasks_401.json")}
+      Bypass.stub(b, "GET", "/_active_tasks", fn conn ->
+        true = anonymous?(conn)
+        json(conn, 401, "active_tasks_401.json")
+      end)
 
-      %{method: :get, url: @plain_url <> "_all_dbs", headers: @admin_header} ->
-        %Tesla.Env{method: :get, status: 200, body: fixture("all_dbs_200.json")}
+      Bypass.stub(b, "GET", "/_all_dbs", fn conn ->
+        if basic_auth?(conn, admin()),
+          do: json(conn, 200, "all_dbs_200.json"),
+          else: json(conn, 401, "active_tasks_401.json")
+      end)
+    end
 
-      # transport-level failures, as returned by Tesla adapters
-      %{method: :get, url: @plain_url <> "_down"} ->
-        {:error, :econnrefused}
-
-      %{method: :get, url: @refused_url} ->
-        {:error, %Mint.TransportError{reason: :econnrefused}}
-    end)
-
-    :ok
+    %{plain: plain.sofa, admin: admin.sofa, url: plain.url, bypass: bypass}
   end
-
-  # doctest Sofa
 
   test "init returns expected struct" do
     assert Sofa.init() == %Sofa{
@@ -59,29 +47,46 @@ defmodule SofaTest do
            }
   end
 
-  test "connect accepts plain URI and returns %Sofa{}" do
-    assert Sofa.connect!(@plain_url) |> is_struct(Sofa)
+  test "client/2 omits basic auth when no credentials are supplied", %{plain: plain} do
+    refute Map.has_key?(plain.client.options, :auth)
+    assert plain.client.options[:retry] == false
+    assert plain.client.options[:inet6] == true
   end
 
-  test "returns valid updated %Sofa{} on GET / 200 OK" do
+  test "client/2 includes basic auth when credentials are supplied", %{admin: admin} do
+    assert admin.client.options[:auth] == {:basic, "admin:passwd"}
+  end
+
+  test "client/2 accepts Req options which override the defaults" do
+    sofa = Sofa.init() |> Sofa.client(receive_timeout: 1, retry: :transient)
+    assert sofa.client.options[:receive_timeout] == 1
+    assert sofa.client.options[:retry] == :transient
+  end
+
+  test "connect accepts plain URI and returns %Sofa{}", %{url: url} do
+    assert Sofa.connect!(url) |> is_struct(Sofa)
+  end
+
+  test "returns valid updated %Sofa{} on GET / 200 OK", %{url: url} do
     expected = fixture("init_200.json")
-    sofa = Sofa.connect!(@plain_url)
+    sofa = Sofa.connect!(url)
     assert is_struct(sofa, Sofa)
     assert expected["version"] == sofa.version
     assert expected["uuid"] == sofa.uuid
     assert is_list(expected["features"])
   end
 
-  test "GET /_up returns 200 OK and %Sofa.Response{}" do
+  test "GET /_up returns 200 OK and %Sofa.Response{}", %{plain: plain, url: url} do
     expected = fixture("up_200.json")
-    response = Sofa.connect!(@plain_url) |> Sofa.raw!("_up")
-    assert %Sofa.Response{method: :get, status: 200} = response
+    response = Sofa.connect!(plain) |> Sofa.raw!("_up")
+    assert %Sofa.Response{method: :get, status: 200, url: ^url <> "_up"} = response
     assert response.body == expected
+    assert response.headers.content_type =~ "application/json"
   end
 
-  test "GET /_active_tasks without credentials returns 401 Unauthorized" do
+  test "GET /_active_tasks without credentials returns 401 Unauthorized", %{plain: plain} do
     expected = fixture("active_tasks_401.json")
-    response = Sofa.connect!(@plain_sofa) |> Sofa.raw("_active_tasks")
+    response = Sofa.connect!(plain) |> Sofa.raw("_active_tasks")
 
     assert {:error,
             %Sofa.Response{
@@ -91,9 +96,9 @@ defmodule SofaTest do
             }} = response
   end
 
-  test "GET /_all_dbs with admin credentials returns 200 OK" do
+  test "GET /_all_dbs with admin credentials returns 200 OK", %{admin: admin} do
     expected = fixture("all_dbs_200.json")
-    response = Sofa.connect!(@admin_sofa) |> Sofa.raw("_all_dbs")
+    response = Sofa.connect!(admin) |> Sofa.raw("_all_dbs")
 
     assert {:ok, %Sofa{},
             %Sofa.Response{
@@ -103,42 +108,39 @@ defmodule SofaTest do
             }} = response
   end
 
-  test "client/1 omits BasicAuth middleware when no credentials are supplied" do
-    refute Enum.any?(@plain_sofa.client.pre, &match?({Tesla.Middleware.BasicAuth, _, _}, &1))
-  end
-
-  test "client/1 includes BasicAuth middleware when credentials are supplied" do
-    assert Enum.any?(@admin_sofa.client.pre, &match?({Tesla.Middleware.BasicAuth, _, _}, &1))
-  end
-
-  test "all_dbs/1 returns {:ok, list} with admin credentials" do
+  test "all_dbs/1 returns {:ok, list} with admin credentials", %{admin: admin} do
     expected = fixture("all_dbs_200.json")
-    assert {:ok, ^expected} = Sofa.connect!(@admin_sofa) |> Sofa.all_dbs()
+    assert {:ok, ^expected} = Sofa.connect!(admin) |> Sofa.all_dbs()
   end
 
-  test "active_tasks/1 requests /_active_tasks" do
-    # only the /_active_tasks mock returns this fixture
+  test "all_dbs/1 is refused without credentials", %{plain: plain} do
+    assert {:error, %Sofa.Response{status: 401}} = Sofa.connect!(plain) |> Sofa.all_dbs()
+  end
+
+  test "active_tasks/1 requests /_active_tasks", %{plain: plain} do
     expected = fixture("active_tasks_401.json")
 
     assert {:error, %Sofa.Response{status: 401, body: ^expected}} =
-             Sofa.connect!(@plain_sofa) |> Sofa.active_tasks()
+             Sofa.connect!(plain) |> Sofa.active_tasks()
   end
 
-  test "raw/2 returns {:error, reason} on transport errors" do
-    assert {:error, :econnrefused} = Sofa.connect!(@plain_sofa) |> Sofa.raw("_down")
+  test "raw/2 returns {:error, reason} on transport errors", %{plain: plain, bypass: bypass} do
+    sofa = Sofa.connect!(plain)
+    Bypass.down(bypass)
+    assert {:error, %Req.TransportError{reason: :econnrefused}} = Sofa.raw(sofa, "_down")
   end
 
-  test "raw!/2 raises Sofa.Error on transport errors" do
+  test "raw!/2 raises Sofa.Error on transport errors", %{plain: plain, bypass: bypass} do
+    sofa = Sofa.connect!(plain)
+    Bypass.down(bypass)
+
     assert_raise Sofa.Error, ~r/unhandled error in get _down/, fn ->
-      Sofa.connect!(@plain_sofa) |> Sofa.raw!("_down")
+      Sofa.raw!(sofa, "_down")
     end
   end
 
-  test "connect!/1 raises Sofa.Error on connection refused" do
-    assert_raise Sofa.Error, ~r/connection refused to localhost:1/, fn ->
-      Sofa.connect!(@refused_url)
-    end
+  test "connect!/1 raises Sofa.Error on connection refused", %{url: url, bypass: bypass} do
+    Bypass.down(bypass)
+    assert_raise Sofa.Error, ~r/connection refused to 127.0.0.1/, fn -> Sofa.connect!(url) end
   end
-
-  defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
 end
