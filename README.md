@@ -67,11 +67,10 @@ API transparently.
 - [x] database: `Sofa.DB.*`
 - [x] document: `Sofa.Doc.*`
 - [x] user:     `Sofa.User.*`
+- [x] changes:  `Sofa.Changes.*`
 - [ ] attachments
 - [ ] transparent Struct API
 - [ ] view:     `Sofa.View.*`
-- [ ] changes:  `Sofa.Changes.*`
-- [ ] timeouts for requests and inactivity
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
 - [ ] embeddable within CouchDB BEAM runtime
@@ -159,6 +158,54 @@ iex> Sofa.Doc.exists?(db,"missing")
     false
 ```
 
+### Following Changes
+
+`Sofa.Changes` is a `GenServer` behaviour for the `_changes` feed. Give it
+a database and implement `handle_change/2`. It keeps the connection open,
+reconnects from the last sequence when the server ends a response, watches
+for missing heartbeats, and asks `handle_error/2` what to do about
+failures. Feed options are the documented query parameters, see
+`Sofa.Changes.Query`.
+
+```elixir
+defmodule Follower do
+  use Sofa.Changes
+
+  require Logger
+
+  def start_link(db), do: Sofa.Changes.start_link(__MODULE__, db)
+
+  @impl true
+  def init(db), do: {:ok, db, [include_docs: true], nil}
+
+  @impl true
+  def handle_change(%{"id" => id, "deleted" => true}, state) do
+    Logger.warning("deleted: #{id}")
+    {:ok, state}
+  end
+
+  def handle_change(%{"doc" => %Sofa.Doc{id: id, rev: rev, body: body}}, state) do
+    Logger.info("doc #{id} rev=#{rev} fields: #{inspect(Map.keys(body))}")
+    {:ok, state}
+  end
+
+  def handle_change(change, state) do
+    Logger.error("unhandled change: #{inspect(change)}")
+    {:ok, state}
+  end
+end
+
+iex> Sofa.init("http://admin:passwd@localhost:5984/")
+     |> Sofa.client()
+     |> Sofa.connect!()
+     |> Sofa.DB.open!("mydb")
+     |> Follower.start_link()
+```
+
+A ready-to-run version of this example is in
+[`examples/follower.exs`](examples/follower.exs). Run it with
+`COUCHDB_URI=http://admin:passwd@localhost:5984/ elixir examples/follower.exs`.
+
 ### Raw Mode
 
 Sometimes you just want to re-upholster the Couch yourself. That's fine,
@@ -213,7 +260,13 @@ Sofa should pass credo, and also respect dialyzer, via `make lint`.
 
 To the CouchDB team, a part of my life for more than a decade. Relax.
 
+To the authors of [ibrowse] and [icouch], whose previous implementation
+of the `_changes` feed in another project provided the backbone that
+`Sofa.Changes` builds on.
+
 [hex]: https://hex.pm/packages/sofa
+[ibrowse]: https://github.com/cmullaparthi/ibrowse/
+[icouch]: https://github.com/meetnow/icouch
 [CouchDB]: https://couchdb.apache.org/
 [hexdocs]: https://hexdocs.pm/sofa
 [CouchDB API]: https://docs.couchdb.org/

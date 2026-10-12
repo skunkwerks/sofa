@@ -12,6 +12,16 @@
     `Tesla.Mock` as it provides better support for testing `_changes` feeds
 - Integration tests default to the live development CouchDB unless
     `COUCHDB_URI` is set, as CI does
+- Add `Sofa.Changes`, a GenServer behaviour following a database's `_changes`
+    feed, built on [Req]'s streaming responses, via 3 modules
+- Supports heartbeat & reconnection
+- `Sofa.Changes.Query` builds the HTTP connection
+- `Sofa.Changes.Parser` converts the raw feed into a stream of events
+- `Sofa.Changes.Worker` handles a single request
+- `include_docs` returns rows as a `%Sofa.Doc{}`
+- `doc_id` and `selector` filters
+
+[Req]: https://hex.pm/packages/req
 
 ## 0.3.0
 
