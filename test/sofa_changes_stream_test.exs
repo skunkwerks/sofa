@@ -11,7 +11,7 @@ defmodule SofaChangesStreamTest do
 
   alias Sofa.{Changes, CouchFixtures, FakeCouch, TestFollower}
 
-  import CouchFixtures, only: [row: 3, seq: 1]
+  import CouchFixtures, only: [row: 3, deleted_row: 3, seq: 1]
 
   setup do
     couch = FakeCouch.open()
@@ -216,6 +216,27 @@ defmodule SofaChangesStreamTest do
       assert_receive {:change, %{"id" => "updated"}, 2}, 1000
       assert_receive {:change, %{"id" => "deleted", "deleted" => true}, 3}, 1000
       refute_receive {:change, _, _}, 200
+    end
+
+    test "with include_docs the doc is parsed into a %Sofa.Doc{}", %{couch: couch, db: db} do
+      streaming(couch, self(), [CouchFixtures.include_docs_row()])
+      follow(db, include_docs: true)
+
+      assert_receive {:change, %{"id" => "SpaghettiWithMeatballs", "doc" => doc}, 1}, 1000
+      assert %Sofa.Doc{id: "SpaghettiWithMeatballs", rev: "13-" <> _, body: body} = doc
+      assert body == %{"title" => "Spaghetti with meatballs", "servings" => 4}
+    end
+
+    test "deleted documents with include_docs carry a tombstone", %{couch: couch, db: db} do
+      tombstone =
+        deleted_row("gone", 8, "2-dead")
+        |> Map.put("doc", %{"_id" => "gone", "_rev" => "2-dead", "_deleted" => true})
+
+      streaming(couch, self(), [tombstone])
+      follow(db, include_docs: true)
+
+      assert_receive {:change, %{"id" => "gone", "deleted" => true, "doc" => doc}, 1}, 1000
+      assert %Sofa.Doc{id: "gone", rev: "2-dead", body: %{"_deleted" => true}} = doc
     end
 
     test "rows are passed through untouched", %{couch: couch, db: db} do

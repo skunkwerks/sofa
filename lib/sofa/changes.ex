@@ -56,7 +56,9 @@ defmodule Sofa.Changes do
   linked `Sofa.Changes.Worker`. Chunks of the feed are delivered as
   messages to the follower, so `c:handle_change/2` is single threaded and
   ordered. Rows are passed through as decoded maps, see
-  `Sofa.Changes.Parser`.
+  `Sofa.Changes.Parser`, except that with `include_docs: true` the
+  embedded document becomes a `%Sofa.Doc{}` via `Sofa.Doc.from_map/1`,
+  with a deletion's tombstone carrying `"_deleted"` in its body.
 
   The follower remembers the `seq` of every delivered row, and the
   `last_seq` a response ends with. When the server ends the response, as it
@@ -101,8 +103,8 @@ defmodule Sofa.Changes do
   @typedoc "The reply tag passed to `c:handle_call/3`"
   @type from :: {pid(), term()}
 
-  @typedoc "A changed document, as decoded from the feed"
-  @type change :: Parser.row()
+  @typedoc "A changed document, as decoded from the feed, see `t:Sofa.Changes.Parser.row/0`"
+  @type change :: %{required(String.t()) => term() | Sofa.Doc.t()}
 
   @typedoc "Why a request failed, as given to `c:handle_error/2`"
   @type error ::
@@ -625,8 +627,9 @@ defmodule Sofa.Changes do
 
   @spec change(Parser.row(), t()) ::
           {:cont, {:noreply, t()} | {:noreply, t(), timeout()}} | {:halt, {:stop, term(), t()}}
-  defp change(row, state = %__MODULE__{module: module, mstate: mstate}) do
+  defp change(row, state = %__MODULE__{module: module, mstate: mstate, query: query}) do
     state = since(state, row["seq"])
+    row = if Query.include_docs?(query), do: to_doc(row), else: row
 
     case module.handle_change(row, mstate) do
       {:ok, mstate} -> {:cont, {:noreply, %{state | mstate: mstate}}}
@@ -634,6 +637,11 @@ defmodule Sofa.Changes do
       {:stop, reason, mstate} -> {:halt, {:stop, reason, %{state | mstate: mstate}}}
     end
   end
+
+  # the embedded document, when present, as the struct the rest of Sofa uses
+  @spec to_doc(Parser.row()) :: change()
+  defp to_doc(row = %{"doc" => doc = %{"_id" => _}}), do: %{row | "doc" => Sofa.Doc.from_map(doc)}
+  defp to_doc(row), do: row
 
   @spec since(t(), term()) :: t()
   defp since(state = %__MODULE__{query: query, fallback: fallback}, seq) do

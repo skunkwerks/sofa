@@ -24,7 +24,7 @@ defmodule Sofa.Changes.Query do
     alternatives
   - `longpoll: true` is shorthand for `feed: :longpoll`
   - `:heartbeat` defaults to 60 000 ms and `:timeout` to 7 200 000 ms
-  - `:since` is kept in the struct so the follower can advance it between
+  - `:since` is kept on the struct so the follower can advance it between
     reconnects. It is sent verbatim and never parsed. Only `:now` or an
     opaque sequence string are accepted. Anything else raises an
     `ArgumentError`. Omitting it leaves `since` as `nil` and drops the
