@@ -11,18 +11,13 @@ distinctly non-JSON things.
 
 ## Installation
 
-It is recommended to use a `Tesla.Adapter`. While in principle these are
-all equivalent, in practice, their patterns for handling query
-parameters, headers, empty HTTP bodies, IPv6, and generally dealing with
-`nil`, `true`, `false` and so forth mean that they are not created
-equal. This library should work, in most cases transparently, and if
-not, we welcome tests and converters to address any shortcomings.
+Sofa uses [Req] for HTTP, which uses [Finch] and [Mint] underneath, and
+[Jason] for JSON. IPv6 is fully supported out of the box. CouchDB's JSON
+is decoded into plain maps.
 
-Sofa makes no guarantees about specific HTTP modules, but should run
-with:
-
-- default Erlang `httpc` "no dependencies!"
-- Mint and Finch
+Any `Req.new/1` option can be passed to `Sofa.client/2` when you do need to
+tweak things, such as timeouts, a proxy, TLS settings, or a `plug:` for
+`Req.Test`.
 
 The package can be installed by adding `sofa` to your list of
 dependencies in `mix.exs`:
@@ -30,21 +25,15 @@ dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:sofa, "~> 0.3"}
+    {:sofa, "~> 0.4"}
   ]
 end
 ```
 
-```elixir
-# config/config.exs
-import Config
-
-if config_env() == :test do
-  config :tesla, adapter: Tesla.Mock
-else
-  config :tesla, adapter: Tesla.Adapter.Mint
-end
-```
+[Req]: https://hexdocs.pm/req
+[Finch]: https://hexdocs.pm/finch
+[Mint]: https://hexdocs.pm/mint
+[Jason]: https://hexdocs.pm/jason
 
 ## Docs
 
@@ -100,10 +89,9 @@ tables, or `persistent_term` for faster access.
 your credentials are sufficient, and to retrieve feature flags and
 vendor settings.
 
-> Exactly how you use this, is dependent on your `Tesla.Adapter` and
-> supervision trees. Make sure that you're not opening a new TCP
-> connection for every call to the database, and then leave them
-> dangling until your app or the server runs of of connections!
+> Req keeps a Finch connection pool per CouchDB host, so building the
+> client once and reusing the struct is cheap. There is no need to open
+> a new TCP connection for every call to the database.
 
 The `Sofa.DB.open!/2` call also does similar checks, ensuring you have
 at least permissions to access the database, in some form. There is
@@ -116,11 +104,10 @@ iex> sofa = Sofa.init("http://admin:passwd@localhost:5984/")
         |> Sofa.client()
         |> Sofa.connect!()
     #Sofa<
-    client: %Tesla.Client{
-        adapter: nil,
-        fun: nil,
-        post: [],
-        pre: [{Tesla.Middleware.BaseUrl, ...}, {...}, ...]
+    client: %Req.Request{
+        method: :get,
+        options: %{base_url: "http://localhost:5984/", ...},
+        ...
     },
     features: ["access-ready", "partitioned", "pluggable-storage-engines",
     "reshard", "scheduler"],
@@ -138,7 +125,7 @@ iex> sofa = Sofa.init("http://admin:passwd@localhost:5984/")
 # re-use the same struct, and confirm we can access a specific database
 iex> db = Sofa.DB.open!("mydb")
     #Sofa<
-    client: %Tesla.Client{ ... },
+    client: %Req.Request{ ... },
     database: "mydb",
     ...
     version: "3.2.0"
@@ -185,7 +172,7 @@ iex> db = Sofa.init("http://admin:passwd@localhost:5984/")
         |> Sofa.raw("/_membership")
 {:ok,
  #Sofa<
-   client: %Tesla.Client{...},
+   client: %Req.Request{...},
    database: nil,
    features: ["access-ready",... "reshard", "scheduler"],
    timeout: nil,

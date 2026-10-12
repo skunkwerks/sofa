@@ -129,14 +129,12 @@ defmodule Sofa.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:bypass, "~> 2.1", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
+      {:bypass, "~> 2.1", only: :test},
       {:jason, "~> 1.4"},
-      {:mint, "~> 1.7"},
-      {:req, "~> 0.7"},
-      {:tesla, "~> 1.14"}
+      {:req, "~> 0.7"}
     ]
   end
 end

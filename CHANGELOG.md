@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+- Switch the HTTP client from Tesla and Mint to [Req](https://hexdocs.pm/req),
+    with JSON via Jason
+- `Sofa.client/2` now takes `Req.new/1` options instead of a Tesla adapter
+- `%Sofa{}.client` is a `Req.Request`
+- Connections try IPv6 first and fall back to IPv4 by default automatically
+- Transport errors are `%Req.TransportError{}`
+- Unit tests fake CouchDB with [Bypass](https://hexdocs.pm/bypass) instead of
+    `Tesla.Mock` as it provides better support for testing `_changes` feeds
+- Integration tests default to the live development CouchDB unless
+    `COUCHDB_URI` is set, as CI does
+
 ## 0.3.0
 
 - Update dependencies (mint 1.11, tesla 1.21)
