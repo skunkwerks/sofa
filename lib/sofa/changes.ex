@@ -67,6 +67,11 @@ defmodule Sofa.Changes do
   may occasionally be delivered twice. CouchDB documents this, so
   `c:handle_change/2` should be idempotent.
 
+  Should the server reject an advanced `since` with a 400, the follower
+  retries once from the last sequence the server did accept, the one it
+  sent on the previous successful request. If that is rejected too, or
+  there is no such sequence, the follower stops with reason `:bad_request`.
+
   ## Errors
 
   A response with a status other than 200, or a failed connection, is
@@ -238,6 +243,12 @@ defmodule Sofa.Changes do
     workers: %{},
     # the partial last line of a continuous feed
     buffer: "",
+    # whether the current request has been answered with a 200 yet
+    connected: false,
+    # the last `since` the server accepted, and the one last fallen back to,
+    # so that two sequences cannot ping-pong between 400 and fallback
+    lkg: nil,
+    fallback: nil,
     # a pending reconnect timer, or :infinity while waiting for retry_now/1
     retry: nil
   ]
@@ -253,6 +264,9 @@ defmodule Sofa.Changes do
           workers: %{optional(pid()) => true},
           ref: reference() | nil,
           buffer: binary(),
+          connected: boolean(),
+          lkg: Query.since(),
+          fallback: Query.since(),
           retry: reference() | :infinity | nil
         }
 
@@ -373,7 +387,7 @@ defmodule Sofa.Changes do
   @impl GenServer
   def handle_info({ref, :data, chunk}, state = %__MODULE__{ref: ref, buffer: buffer}) do
     {events, buffer} = Parser.feed(buffer, chunk)
-    deliver(events, %{state | buffer: buffer})
+    deliver(events, %{connected(state) | buffer: buffer})
   end
 
   def handle_info(
@@ -388,21 +402,33 @@ defmodule Sofa.Changes do
 
     Logger.debug("#{inspect(state.module)}: response ended, will reconnect")
 
-    case deliver(events, %{state | buffer: ""}) do
+    case deliver(events, %{connected(state) | buffer: ""}) do
       {:noreply, state} -> {:noreply, state |> stop_stream() |> schedule(0)}
       {:noreply, state, timeout} -> {:noreply, state |> stop_stream() |> schedule(0), timeout}
       stop -> stop
     end
   end
 
-  # a 400 means the request itself is wrong, typically a `since` the server
-  # no longer knows. Nothing a retry would fix, so the follower stops
+  # a 400 usually means the advanced `since` is one the server no longer
+  # knows. Fall back once to the last one it accepted, otherwise stop
   def handle_info(
         {ref, :done, %Req.Response{status: 400, body: body}},
         state = %__MODULE__{ref: ref}
       ) do
-    Logger.error("#{inspect(state.module)}: _changes request rejected: #{inspect(body)}")
-    {:stop, :bad_request, stop_stream(state)}
+    case state do
+      %__MODULE__{lkg: lkg, query: query} when lkg != nil ->
+        Logger.warning(
+          "#{inspect(state.module)}: _changes rejected since #{inspect(query.since)}, " <>
+            "retrying from #{inspect(lkg)}"
+        )
+
+        state = %{state | query: Query.since(query, lkg), lkg: nil, fallback: lkg}
+        {:noreply, state |> stop_stream() |> schedule(0)}
+
+      _ ->
+        Logger.error("#{inspect(state.module)}: _changes request rejected: #{inspect(body)}")
+        {:stop, :bad_request, stop_stream(state)}
+    end
   end
 
   def handle_info({ref, :done, %Req.Response{status: status}}, state = %__MODULE__{ref: ref}) do
@@ -482,7 +508,18 @@ defmodule Sofa.Changes do
 
     worker = Worker.start_link(self(), ref, db, query)
     workers = Map.put(state.workers, worker, true)
-    %{state | ref: ref, worker: worker, workers: workers, buffer: ""}
+    %{state | ref: ref, worker: worker, workers: workers, buffer: "", connected: false}
+  end
+
+  # The server accepted this request's `since`, so remember it as the last
+  # known good one, unless it is the sequence just fallen back to: that one
+  # has already had its retry, and re-arming it would loop forever.
+  @spec connected(t()) :: t()
+  defp connected(state = %__MODULE__{connected: true}), do: state
+
+  defp connected(state = %__MODULE__{query: %Query{since: since}, fallback: fallback}) do
+    lkg = if since != nil and since != fallback, do: since, else: state.lkg
+    %{state | connected: true, lkg: lkg}
   end
 
   # kills the worker, which closes the connection. Its messages become stale,
@@ -541,8 +578,11 @@ defmodule Sofa.Changes do
   end
 
   @spec since(t(), term()) :: t()
-  defp since(state = %__MODULE__{query: query}, seq),
-    do: %{state | query: Query.since(query, seq)}
+  defp since(state = %__MODULE__{query: query, fallback: fallback}, seq) do
+    # a newly delivered sequence supersedes the fallback, which may then be re-armed
+    fallback = if seq == fallback, do: fallback, else: nil
+    %{state | query: Query.since(query, seq), fallback: fallback}
+  end
 
   defp log_error(%{"error" => error, "reason" => reason}, acc) do
     Logger.warning("Sofa.Changes: error object in feed, skipping: #{error} - #{reason}")

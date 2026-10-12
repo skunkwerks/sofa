@@ -10,6 +10,8 @@ defmodule SofaChangesErrorTest do
 
   alias Sofa.{Changes, FakeCouch, TestFollower}
 
+  import Sofa.CouchFixtures, only: [row: 3, seq: 1]
+
   setup do
     couch = FakeCouch.open()
     %{couch: couch, db: couch.db}
@@ -89,6 +91,78 @@ defmodule SofaChangesErrorTest do
       refute_receive {:info, {:EXIT, _pid, _reason}}, 200
       assert %Changes{workers: workers} = :sys.get_state(follower)
       assert workers == %{}
+    end
+  end
+
+  describe "400 fallback" do
+    # rejects every since except seq(5), which streams one row and ends
+    defp rejecting_except_five(couch, pid) do
+      known = seq(5)
+
+      FakeCouch.expect_changes(couch, fn conn ->
+        conn = FakeCouch.report(conn, pid)
+
+        case conn.query_params["since"] do
+          ^known ->
+            FakeCouch.stream(conn, couch, pid, [row("a", 6, "1-a")], hold: false)
+
+          _bad ->
+            FakeCouch.error(
+              conn,
+              400,
+              "bad_request",
+              "Malformed sequence supplied in 'since' parameter."
+            )
+        end
+      end)
+    end
+
+    test "a 400 after a known-good sequence retries once from that sequence", %{
+      couch: couch,
+      db: db
+    } do
+      known = seq(5)
+
+      rejecting_except_five(couch, self())
+      {follower, ref} = start_monitored(%{db: db, opts: [since: known], pid: self()})
+
+      assert_receive {:changes_request, %{query: %{"since" => ^known}}}, 1000
+      assert_receive {:changes_request, %{query: %{"since" => bad}}}, 2000
+      assert bad == seq(6)
+      assert_receive {:changes_request, %{query: %{"since" => ^known}}}, 2000
+      refute_received {:error, _}
+
+      # the fallback is not re-armed, so the same rejection is now fatal
+      assert_receive {:changes_request, %{query: %{"since" => ^bad}}}, 2000
+      assert_receive {:DOWN, ^ref, :process, ^follower, :bad_request}, 2000
+    end
+
+    test "a 400 on the very first request has nothing to fall back to", %{couch: couch, db: db} do
+      pid = self()
+
+      FakeCouch.expect_changes(couch, fn conn ->
+        conn = FakeCouch.report(conn, pid)
+
+        case conn.query_params["since"] do
+          nil ->
+            FakeCouch.stream(conn, couch, pid, [row("a", 6, "1-a")], hold: false)
+
+          _bad ->
+            FakeCouch.error(
+              conn,
+              400,
+              "bad_request",
+              "Malformed sequence supplied in 'since' parameter."
+            )
+        end
+      end)
+
+      {follower, ref} = start_monitored(%{db: db, pid: self()})
+
+      assert_receive {:changes_request, %{query: %{"since" => bad}}}, 2000
+      assert bad == seq(6)
+      assert_receive {:DOWN, ^ref, :process, ^follower, :bad_request}, 2000
+      assert_receive {:terminate, :bad_request}
     end
   end
 
