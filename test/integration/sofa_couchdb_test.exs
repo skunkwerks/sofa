@@ -1,18 +1,18 @@
 defmodule SofaCouchDBTest do
   @moduledoc """
-  Runs the public Sofa API against a real CouchDB instance, bypassing
-  Tesla.Mock. Excluded by default; run with `mix test --include integration`.
+  Runs the public Sofa API against a real CouchDB instance, without
+  Bypass. Excluded by default. Run with `mix test --include integration`.
   """
   use ExUnit.Case, async: false
 
   @moduletag :integration
 
-  # these match the CouchDB service container in .github/workflows/ci.yaml
+  # CI sets COUCHDB_URI to its service container. The default is a live
+  # development CouchDB, see test/integration/README.md
   @couchdb_uri System.get_env("COUCHDB_URI", "http://admin:passwd@localhost:5984/")
-  @adapter {Tesla.Adapter.Mint, transport_opts: [inet6: true, inet4: true]}
 
   setup_all do
-    admin = Sofa.init(@couchdb_uri) |> Sofa.client(@adapter) |> Sofa.connect!()
+    admin = Sofa.init(@couchdb_uri) |> Sofa.client() |> Sofa.connect!()
     # the couchdb:3 image doesn't create system DBs in single node mode
     ensure_db(admin, "_users")
     db = "sofa_ci_#{System.unique_integer([:positive])}"
@@ -34,7 +34,7 @@ defmodule SofaCouchDBTest do
     %URI{uri | userinfo: nil, authority: nil}
     |> URI.to_string()
     |> Sofa.init()
-    |> Sofa.client(@adapter)
+    |> Sofa.client()
   end
 
   test "connect!/1 reports server version and features", %{admin: admin} do
@@ -57,8 +57,8 @@ defmodule SofaCouchDBTest do
   end
 
   test "raw/6 returns a transport error for an unreachable server" do
-    sofa = Sofa.init("http://localhost:1/") |> Sofa.client(@adapter)
-    assert {:error, %Mint.TransportError{reason: :econnrefused}} = Sofa.raw(sofa, "/")
+    sofa = Sofa.init("http://localhost:1/") |> Sofa.client()
+    assert {:error, %Req.TransportError{reason: :econnrefused}} = Sofa.raw(sofa, "/")
     assert_raise Sofa.Error, ~r/connection refused/, fn -> Sofa.connect!(sofa) end
   end
 
@@ -149,6 +149,6 @@ defmodule SofaCouchDBTest do
     %URI{uri | userinfo: "#{name}:#{password}", authority: nil}
     |> URI.to_string()
     |> Sofa.init()
-    |> Sofa.client(@adapter)
+    |> Sofa.client()
   end
 end

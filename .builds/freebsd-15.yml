@@ -45,7 +45,7 @@ tasks:
         sleep 2
       done
       fetch -o - http://localhost:5984/
-      make test-integration
+      env COUCHDB_URI=http://admin:passwd@localhost:5984/ make test-integration
   # last, as it is slowest: dialyzer builds its PLT from scratch here
   - lint: |
       cd sofa
