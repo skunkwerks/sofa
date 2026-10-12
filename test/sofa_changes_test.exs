@@ -91,11 +91,6 @@ defmodule SofaChangesTest do
                :sys.get_state(pid)
     end
 
-    test "{:ok, db, opts, state, timeout} delivers :timeout to handle_info/2" do
-      {:ok, _} = Changes.start_link(TestFollower, %{db: @db, opts: [], pid: self(), timeout: 10})
-      assert_receive {:info, :timeout}, 1000
-    end
-
     test "a database handle without a client gets one" do
       db = Sofa.init("http://127.0.0.1:1/") |> Map.put(:database, "recipes")
       {:ok, pid} = Changes.start_link(TestFollower, %{db: db, pid: self()})

@@ -52,14 +52,35 @@ defmodule Sofa.Changes do
   module with its own state threaded through, and `c:handle_error/2`
   decides what to do when a request fails.
 
-  Each follower is one process with its own HTTP connection. Changes are
-  delivered as messages to that process, so `c:handle_change/2` is single
-  threaded and ordered.
+  ## Streaming and reconnecting
+
+  Each follower is one process with its own HTTP connection, run by a
+  linked `Sofa.Changes.Worker`. Chunks of the feed are delivered as
+  messages to the follower, so `c:handle_change/2` is single threaded and
+  ordered. Rows are passed through as decoded maps, see
+  `Sofa.Changes.Parser`.
+
+  The follower remembers the `seq` of every delivered row, and the
+  `last_seq` a response ends with. When the server ends the response, as it
+  does on its `timeout`, on `limit`, or after each longpoll batch, the
+  follower reconnects with `since` set to that sequence, after a random
+  delay of up to 500 ms so that many followers do not reconnect at once.
+  Sequences are opaque and never parsed. Because shards can move, a change
+  may occasionally be delivered twice. CouchDB documents this, so
+  `c:handle_change/2` should be idempotent.
+
+  ## Errors
+
+  A response with a status other than 200, or a failed connection, is
+  reported to `c:handle_error/2` as one of `t:error/0`, after closing the
+  connection. The reply decides whether and when to reconnect.
   """
 
   use GenServer
 
-  alias Sofa.Changes.Query
+  require Logger
+
+  alias Sofa.Changes.{Parser, Query, Worker}
 
   @typedoc "A follower, as accepted by `GenServer` functions"
   @type follower ::
@@ -69,7 +90,7 @@ defmodule Sofa.Changes do
   @type from :: {pid(), term()}
 
   @typedoc "A changed document, as decoded from the feed"
-  @type change :: Sofa.Changes.Parser.row()
+  @type change :: Parser.row()
 
   @typedoc "Why a request failed, as given to `c:handle_error/2`"
   @type error ::
@@ -89,6 +110,10 @@ defmodule Sofa.Changes do
   Returns the database to follow, optionally the feed options (see
   `Sofa.Changes.Query`), the callback state, and optionally a `GenServer`
   timeout. `:ignore` and `{:stop, reason}` behave as in `GenServer`.
+
+  The first request is only made after `c:init/1` returns, so starting
+  succeeds even when the server will refuse it. The refusal then reaches
+  `c:handle_error/2`.
   """
   @callback init(args :: term()) ::
               {:ok, db :: Sofa.t(), state}
@@ -201,7 +226,24 @@ defmodule Sofa.Changes do
 
   # The follower's own state: the callback module's state lives in `mstate`.
   # Fields are documented where they are first used.
-  defstruct [:module, :mstate, :db, :query, :timeout]
+  defstruct [
+    :module,
+    :mstate,
+    :db,
+    :query,
+    # a GenServer timeout from init/1, applied once the stream has started
+    :timeout,
+    # the current Sofa.Changes.Worker and the reference tagging its messages
+    :worker,
+    :ref,
+    # every worker spawned and not yet exited, so their exit signals can be
+    # told apart from those of processes the callback module linked to
+    workers: %{},
+    # the partial last line of a continuous feed
+    buffer: "",
+    # a pending reconnect timer, or :infinity while waiting for retry_now/1
+    retry: nil
+  ]
 
   @typedoc "The follower's internal state, visible via `:sys.get_state/1`"
   @type t :: %__MODULE__{
@@ -209,8 +251,15 @@ defmodule Sofa.Changes do
           mstate: term(),
           db: Sofa.t(),
           query: Query.t(),
-          timeout: timeout() | :hibernate | nil
+          timeout: timeout() | :hibernate | nil,
+          worker: pid() | nil,
+          workers: %{optional(pid()) => true},
+          ref: reference() | nil,
+          buffer: binary(),
+          retry: reference() | :infinity | nil
         }
+
+  @jitter 500
 
   ## Public API, mirroring GenServer
 
@@ -295,6 +344,8 @@ defmodule Sofa.Changes do
           "expected a %Sofa{} with a database, as from Sofa.DB.open!/2, got: #{inspect(db)}"
   end
 
+  # The first request is issued here, after init/1 has returned, so that
+  # start_link/3 succeeds even when the server will refuse the request.
   @impl GenServer
   def handle_continue(:start, state = %__MODULE__{timeout: nil}),
     do: {:noreply, start_stream(state)}
@@ -302,11 +353,6 @@ defmodule Sofa.Changes do
   def handle_continue(:start, state = %__MODULE__{timeout: timeout}) do
     {:noreply, start_stream(%{state | timeout: nil}), timeout}
   end
-
-  # The first request is issued here, after init/1 has returned, so that
-  # start_link/3 succeeds even when the server will refuse the request.
-  @spec start_stream(t()) :: t()
-  defp start_stream(state = %__MODULE__{}), do: state
 
   @impl GenServer
   def handle_call(request, from, state = %__MODULE__{module: module, mstate: mstate}) do
@@ -325,25 +371,87 @@ defmodule Sofa.Changes do
     module.handle_cast(request, mstate) |> noreply(state)
   end
 
+  ## messages from the current worker. Anything tagged with an old ref is stale
+
   @impl GenServer
+  def handle_info({ref, :data, chunk}, state = %__MODULE__{ref: ref, buffer: buffer}) do
+    {events, buffer} = Parser.feed(buffer, chunk)
+    deliver(events, %{state | buffer: buffer})
+  end
+
+  def handle_info(
+        {ref, :done, %Req.Response{status: 200, body: body}},
+        state = %__MODULE__{ref: ref}
+      ) do
+    events =
+      case state.query.feed do
+        :continuous -> Parser.flush(state.buffer)
+        _batch -> Parser.batch(body)
+      end
+
+    Logger.debug("#{inspect(state.module)}: response ended, will reconnect")
+
+    case deliver(events, %{state | buffer: ""}) do
+      {:noreply, state} -> {:noreply, state |> stop_stream() |> schedule(0)}
+      {:noreply, state, timeout} -> {:noreply, state |> stop_stream() |> schedule(0), timeout}
+      stop -> stop
+    end
+  end
+
+  def handle_info({ref, :done, %Req.Response{status: status}}, state = %__MODULE__{ref: ref}) do
+    Logger.warning("#{inspect(state.module)}: _changes request failed with HTTP #{status}")
+    state |> stop_stream() |> handle_error(reason(status))
+  end
+
+  def handle_info({ref, :error, exception}, state = %__MODULE__{ref: ref}) do
+    Logger.warning(
+      "#{inspect(state.module)}: _changes request failed: #{Exception.message(exception)}"
+    )
+
+    state |> stop_stream() |> handle_error({:conn_failed, reason(exception)})
+  end
+
+  # workers exit normally after their :done or :error message, or killed by
+  # stop_stream/1. Only the current one dying any other way needs a restart
+  def handle_info({:EXIT, pid, reason}, state = %__MODULE__{workers: workers})
+      when is_map_key(workers, pid) do
+    state = %{state | workers: Map.delete(workers, pid)}
+
+    if pid == state.worker and reason != :normal do
+      Logger.warning(
+        "#{inspect(state.module)}: connection process died, will reconnect: #{inspect(reason)}"
+      )
+
+      {:noreply, state |> stop_stream() |> schedule(0)}
+    else
+      {:noreply, state}
+    end
+  end
+
+  def handle_info({:"$sofa_changes", :start, ref}, state = %__MODULE__{retry: ref}) do
+    {:noreply, start_stream(%{state | retry: nil})}
+  end
+
+  def handle_info({:"$sofa_changes", :retry_now}, state = %__MODULE__{retry: :infinity}) do
+    {:noreply, start_stream(%{state | retry: nil})}
+  end
+
   def handle_info({:"$sofa_changes", :retry_now}, state = %__MODULE__{}), do: {:noreply, state}
+
+  def handle_info({ref, _tag, _payload}, state = %__MODULE__{}) when is_reference(ref) do
+    # from a worker that has since been replaced
+    {:noreply, state}
+  end
+
+  def handle_info({:"$sofa_changes", _tag, _ref}, state = %__MODULE__{}), do: {:noreply, state}
 
   def handle_info(msg, state = %__MODULE__{module: module, mstate: mstate}) do
     module.handle_info(msg, mstate) |> noreply(state)
   end
 
-  # wraps the callback module's state back into ours for noreply-style replies
-  @spec noreply(term(), t()) ::
-          {:noreply, t()} | {:noreply, t(), timeout()} | {:stop, term(), t()}
-  defp noreply({:noreply, mstate}, state), do: {:noreply, %{state | mstate: mstate}}
-
-  defp noreply({:noreply, mstate, timeout}, state),
-    do: {:noreply, %{state | mstate: mstate}, timeout}
-
-  defp noreply({:stop, reason, mstate}, state), do: {:stop, reason, %{state | mstate: mstate}}
-
   @impl GenServer
-  def terminate(reason, %__MODULE__{module: module, mstate: mstate}) do
+  def terminate(reason, state = %__MODULE__{module: module, mstate: mstate}) do
+    _closed = stop_stream(state)
     module.terminate(reason, mstate)
   end
 
@@ -354,4 +462,122 @@ defmodule Sofa.Changes do
       other -> other
     end
   end
+
+  ## the stream
+
+  @spec start_stream(t()) :: t()
+  defp start_stream(state = %__MODULE__{db: db, query: query}) do
+    ref = make_ref()
+
+    Logger.debug(
+      "#{inspect(state.module)}: requesting /#{db.database}/_changes since #{inspect(query.since)}"
+    )
+
+    worker = Worker.start_link(self(), ref, db, query)
+    workers = Map.put(state.workers, worker, true)
+    %{state | ref: ref, worker: worker, workers: workers, buffer: ""}
+  end
+
+  # kills the worker, which closes the connection. Its messages become stale,
+  # and its exit signal, still linked, prunes it from the workers map
+  @spec stop_stream(t()) :: t()
+  defp stop_stream(state = %__MODULE__{worker: nil}), do: state
+
+  defp stop_stream(state = %__MODULE__{worker: worker}) do
+    Process.exit(worker, :kill)
+    %{state | worker: nil, ref: nil, buffer: ""}
+  end
+
+  # reconnects after `delay` plus jitter, so a fleet of followers staggers
+  @spec schedule(t(), non_neg_integer()) :: t()
+  defp schedule(state = %__MODULE__{}, delay) do
+    ref = make_ref()
+
+    _timer =
+      Process.send_after(self(), {:"$sofa_changes", :start, ref}, delay + :rand.uniform(@jitter))
+
+    %{state | retry: ref}
+  end
+
+  # hands each event to the callback module, advancing `since` as it goes
+  @spec deliver([Parser.event()], t()) ::
+          {:noreply, t()} | {:noreply, t(), timeout()} | {:stop, term(), t()}
+  defp deliver(events, state = %__MODULE__{}) do
+    Enum.reduce_while(events, {:noreply, state}, fn
+      {:change, row}, {:noreply, state, _timeout} ->
+        change(row, state)
+
+      {:change, row}, {:noreply, state} ->
+        change(row, state)
+
+      {:last_seq, seq}, {:noreply, state, timeout} ->
+        {:cont, {:noreply, since(state, seq), timeout}}
+
+      {:last_seq, seq}, {:noreply, state} ->
+        {:cont, {:noreply, since(state, seq)}}
+
+      {:error, error}, acc ->
+        {:cont, log_error(error, acc)}
+    end)
+  end
+
+  @spec change(Parser.row(), t()) ::
+          {:cont, {:noreply, t()} | {:noreply, t(), timeout()}} | {:halt, {:stop, term(), t()}}
+  defp change(row, state = %__MODULE__{module: module, mstate: mstate}) do
+    state = since(state, row["seq"])
+
+    case module.handle_change(row, mstate) do
+      {:ok, mstate} -> {:cont, {:noreply, %{state | mstate: mstate}}}
+      {:ok, mstate, timeout} -> {:cont, {:noreply, %{state | mstate: mstate}, timeout}}
+      {:stop, reason, mstate} -> {:halt, {:stop, reason, %{state | mstate: mstate}}}
+    end
+  end
+
+  @spec since(t(), term()) :: t()
+  defp since(state = %__MODULE__{query: query}, seq),
+    do: %{state | query: Query.since(query, seq)}
+
+  defp log_error(%{"error" => error, "reason" => reason}, acc) do
+    Logger.warning("Sofa.Changes: error object in feed, skipping: #{error} - #{reason}")
+    acc
+  end
+
+  ## errors
+
+  @spec handle_error(t(), error()) :: {:noreply, t()} | {:stop, term(), t()}
+  defp handle_error(state = %__MODULE__{module: module, mstate: mstate}, error) do
+    case module.handle_error(error, mstate) do
+      {:retry, mstate} ->
+        {:noreply, schedule(%{state | mstate: mstate}, 0)}
+
+      {:retry, :infinity, mstate} ->
+        {:noreply, %{state | mstate: mstate, retry: :infinity}}
+
+      {:retry, wait, mstate} when is_integer(wait) ->
+        {:noreply, schedule(%{state | mstate: mstate}, wait)}
+
+      {:stop, reason, mstate} ->
+        {:stop, reason, %{state | mstate: mstate}}
+    end
+  end
+
+  @spec reason(pos_integer() | Exception.t()) :: error() | term()
+  defp reason(400), do: :bad_request
+  defp reason(401), do: :unauthorized
+  defp reason(403), do: :forbidden
+  defp reason(404), do: :not_found
+  defp reason(500), do: :internal_server_error
+  defp reason(status) when is_integer(status), do: {:status_code, status}
+  defp reason(%{reason: reason}), do: reason
+  defp reason(exception), do: exception
+
+  # wraps the callback module's state back into ours for noreply-style replies
+  @spec noreply(term(), t()) ::
+          {:noreply, t()} | {:noreply, t(), timeout()} | {:stop, term(), t()}
+  defp noreply({:noreply, mstate}, state), do: {:noreply, %{state | mstate: mstate}}
+
+  defp noreply({:noreply, mstate, timeout}, state),
+    do: {:noreply, %{state | mstate: mstate}, timeout}
+
+  defp noreply({:stop, reason, mstate}, state), do: {:stop, reason, %{state | mstate: mstate}}
 end
