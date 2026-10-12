@@ -1,53 +1,50 @@
 defmodule SofaUserTest do
   use ExUnit.Case, async: true
 
-  @plain_url "http://localhost:5984/"
-  @plain_sofa Sofa.init(@plain_url) |> Sofa.client()
-
-  import Tesla.Mock
+  import Sofa.BypassHelpers
 
   setup do
-    mock(fn
-      # required for Sofa.connect!/1 in all tests
-      %{method: :get, url: @plain_url} ->
-        %Tesla.Env{status: 200, body: fixture("init_200.json")}
+    %{bypass: bypass, sofa: sofa} = start()
 
-      # fake _users DB so we can open!/2 it
-      %{method: :get, url: @plain_url <> "_users"} ->
-        %Tesla.Env{method: :get, status: 200, body: fixture("get_db_200.json")}
+    # required for Sofa.connect!/1 and Sofa.DB.open!/2 in all tests
+    Bypass.stub(bypass, "GET", "/", &json(&1, 200, "init_200.json"))
+    Bypass.stub(bypass, "GET", "/_users", &json(&1, 200, "get_db_200.json"))
+    Bypass.stub(bypass, "HEAD", "/_users", &empty(&1, 200))
 
-      # fake _users DB so we can open!/2 it
-      %{method: :head, url: @plain_url <> "_users"} ->
-        %Tesla.Env{method: :head, status: 200, body: ""}
-
-      # actual doc tests start here
-      # https://docs.couchdb.org/en/stable/api/document/common.html
-      %{method: :put, url: @plain_url <> "_users/org.couchdb.user:dch"} ->
-        %Tesla.Env{method: :put, status: 201, body: fixture("put_user_201.json")}
-
-      %{method: :get, url: @plain_url <> "_users/org.couchdb.user:dch"} ->
-        %Tesla.Env{method: :get, status: 200, body: fixture("get_user_200.json")}
-
-      # a password reset must not carry stale hash fields back to CouchDB
-      %{method: :put, url: @plain_url <> "_users/org.couchdb.user:reset", body: body} ->
-        stale = ["derived_key", "salt", "iterations", "password_scheme"]
-
-        doc = Jason.decode!(body)
-
-        case Map.has_key?(doc, "password") and not Enum.any?(stale, &Map.has_key?(doc, &1)) do
-          true -> %Tesla.Env{method: :put, status: 201, body: fixture("put_user_201.json")}
-          false -> %Tesla.Env{method: :put, status: 400, body: fixture("put_doc_400.json")}
-        end
+    # https://docs.couchdb.org/en/stable/api/document/common.html
+    # NB Bypass compiles paths as Plug router patterns, so the `:name` part of
+    # a CouchDB user id would become a wildcard. Dispatch on the real path instead
+    Bypass.stub(bypass, "GET", "/_users/:user", fn conn ->
+      assert conn.request_path == "/_users/org.couchdb.user:dch"
+      json(conn, 200, "get_user_200.json")
     end)
 
-    :ok
+    Bypass.stub(bypass, "PUT", "/_users/:user", fn conn ->
+      {conn, body} = json_body(conn)
+
+      case conn.request_path do
+        "/_users/org.couchdb.user:dch" ->
+          assert %{"_id" => "org.couchdb.user:dch", "type" => "user", "name" => "dch"} = body
+          json(conn, 201, "put_user_201.json")
+
+        # a password reset must not carry stale hash fields back to CouchDB
+        "/_users/org.couchdb.user:reset" ->
+          stale = ["derived_key", "salt", "iterations", "password_scheme"]
+
+          if Map.has_key?(body, "password") and not Enum.any?(stale, &Map.has_key?(body, &1)),
+            do: json(conn, 201, "put_user_201.json"),
+            else: json(conn, 400, "put_doc_400.json")
+      end
+    end)
+
+    %{users: Sofa.connect!(sofa) |> Sofa.DB.open!("_users"), sofa: sofa}
   end
 
   doctest Sofa.User
 
-  test "GET /_users returns 200 OK" do
+  test "GET /_users returns 200 OK", %{sofa: sofa} do
     expected = fixture("get_db_200.json")
-    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.info("_users")
+    response = Sofa.connect!(sofa) |> Sofa.DB.info("_users")
 
     assert {:ok, %Sofa{},
             %Sofa.Response{
@@ -59,13 +56,8 @@ defmodule SofaUserTest do
 
   ## actual User tests
   # PUT user
-  test "PUT /_users/org.couchdb.user:dch returns 201 Created & updated doc" do
+  test "PUT /_users/org.couchdb.user:dch returns 201 Created & updated doc", %{users: users} do
     user = Sofa.User.new("dch", "orange", ["pointy_hat", "users"])
-
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("_users")
-      |> Sofa.User.put(user)
 
     assert {:ok,
             %Sofa.Doc{
@@ -78,17 +70,12 @@ defmodule SofaUserTest do
               id: "org.couchdb.user:dch",
               rev: "1-296e5d3ca9b27b883afef165c53eab9e",
               type: :user
-            }} = response
+            }} = Sofa.User.put(users, user)
   end
 
   # GET user
-  test "GET /_users/org.couchdb.user:dch returns 200 OK with correct body" do
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("_users")
-      |> Sofa.User.get("dch")
-
-    assert Map.equal?(response, %Sofa.Doc{
+  test "GET /_users/org.couchdb.user:dch returns 200 OK with correct body", %{users: users} do
+    assert Map.equal?(Sofa.User.get(users, "dch"), %Sofa.Doc{
              attachments: nil,
              body: %{
                "derived_key" => "36aa712d1e64c356feefca0e75f915d5b917a8f5",
@@ -118,11 +105,9 @@ defmodule SofaUserTest do
     assert Map.equal?(doc, Sofa.Doc.from_map(map))
   end
 
-  test "password field is removed & converted to salted hashed form on GET after PUT" do
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("_users")
-      |> Sofa.User.get("dch")
+  test "password field is removed & converted to salted hashed form on GET after PUT",
+       %{users: users} do
+    response = Sofa.User.get(users, "dch")
 
     assert !Map.has_key?(response.body, "password")
     assert Map.get(response.body, "password_scheme") == "pbkdf2"
@@ -136,23 +121,16 @@ defmodule SofaUserTest do
     refute Map.has_key?(doc.body, :password)
   end
 
-  test "reset_password/2 followed by put/2 strips stale password hash fields" do
-    doc =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("_users")
-      |> Sofa.User.get("dch")
+  test "reset_password/2 followed by put/2 strips stale password hash fields", %{users: users} do
+    doc = Sofa.User.get(users, "dch")
 
-    # pretend the fetched user was "reset" so the mock can validate the body
+    # pretend the fetched user was "reset" so the stub can validate the body
     reset =
       %Sofa.Doc{doc | id: "org.couchdb.user:reset", body: %{doc.body | "name" => "reset"}}
       |> Sofa.User.reset_password("fresh")
 
     assert Map.has_key?(reset.body, "derived_key")
-
-    assert {:ok, %Sofa.Doc{body: body}} =
-             Sofa.connect!(@plain_sofa)
-             |> Sofa.DB.open!("_users")
-             |> Sofa.User.put(reset)
+    assert {:ok, %Sofa.Doc{body: body}} = Sofa.User.put(users, reset)
 
     assert body["password"] == "fresh"
     refute Map.has_key?(body, "derived_key")
@@ -164,6 +142,4 @@ defmodule SofaUserTest do
     length = :rand.uniform(48) + 16
     assert length == String.length(Sofa.User.generate_random_secret(length))
   end
-
-  defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
 end
