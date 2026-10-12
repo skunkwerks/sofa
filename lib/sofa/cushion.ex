@@ -21,12 +21,21 @@ defmodule Sofa.Cushion do
       Etag : "4-322add00c33cab838bf9d7909f18d4f5"
 
   """
-  @spec untaint_headers(Tesla.Env.headers()) :: map()
-  def untaint_headers(h) when is_list(h) do
-    untaint_headers(h, %{})
+  @type headers :: %{optional(binary()) => [binary()]} | [{binary(), binary()}]
+
+  @spec untaint_headers(headers()) :: map()
+  def untaint_headers(headers) when is_map(headers) or is_list(headers) do
+    # Req gives a map of lower-cased names to lists of values. Flatten that
+    # into the `{name, value}` pairs that older adapters (and tests) use
+    headers
+    |> Enum.flat_map(fn
+      {k, values} when is_list(values) -> Enum.map(values, &{k, &1})
+      {k, v} -> [{k, v}]
+    end)
+    |> untaint_headers(%{})
   end
 
-  @spec untaint_headers(Tesla.Env.headers(), map()) :: map()
+  @spec untaint_headers([{binary(), binary()}], map()) :: map()
   defp untaint_headers([], map), do: map
 
   defp untaint_headers([{"etag", v} | t], m) do
@@ -61,7 +70,7 @@ defmodule Sofa.Cushion do
     untaint_headers(t, Map.put(m, :couch_body_time, String.to_integer(v)))
   end
 
-  # retry this header in lower-case; if it is already lower-case and still
+  # retry this header in lower-case. If it is already lower-case and still
   # unmatched by the clauses above, it's not one we care about, so drop it
   defp untaint_headers([{k, v} | t], m) do
     case String.downcase(k) do

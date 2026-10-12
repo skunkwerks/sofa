@@ -27,6 +27,21 @@ defmodule SofaCushionTest do
            }
   end
 
+  test "Req-style header maps with list values are accepted" do
+    headers = %{
+      "etag" => [~s("1-leet")],
+      "content-length" => ["2"],
+      "cache-control" => ["must-revalidate"],
+      "x-frame-options" => ["deny"]
+    }
+
+    assert Cushion.untaint_headers(headers) == %{
+             etag: "1-leet",
+             content_length: 2,
+             cache_control: "must-revalidate"
+           }
+  end
+
   test "already lower-cased headers are accepted as-is" do
     assert Cushion.untaint_headers([{"etag", ~s("1-leet")}, {"content-length", "2"}]) ==
              %{etag: "1-leet", content_length: 2}
