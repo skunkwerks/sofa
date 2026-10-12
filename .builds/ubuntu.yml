@@ -1,0 +1,83 @@
+# submit this via `hut builds submit -f .builds/ubuntu.yml`
+image: ubuntu/24.04
+packages:
+  - curl
+  - git
+sources:
+  - https://git.sr.ht/~dch/sofa
+environment:
+  COUCHDB_PASSWORD: passwd
+  ELIXIR_VER: 1.20.4
+  OTP_VER: 29.1.1
+  ELIXIR_ERL_OPTIONS: +fnu
+  PATH: /home/build/.elixir-install/installs/otp/29.1.1/bin:/home/build/.elixir-install/installs/elixir/1.20.4-otp-29/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+tasks:
+  - install-erlang-elixir: |
+      curl -fsSO https://elixir-lang.org/install.sh
+      sh install.sh elixir@${ELIXIR_VER} otp@${OTP_VER}
+      uname -a
+      elixir --version
+      erl -version
+  # install the latest public release of CouchDB from the official Apache repo.
+  # The deb installs to /opt/couchdb (config at /opt/couchdb/etc/*.ini) and
+  # prompts via debconf, so pre-seed the answers for a headless, standalone
+  # single-node install bound to 127.0.0.1. couchdb/cookie is also required
+  # in standalone mode (promptcookie would otherwise abort with exit 30).
+  - couchdb-install: |
+      sudo apt update && sudo apt install -y curl apt-transport-https gnupg
+      curl https://couchdb.apache.org/repo/keys.asc | gpg --dearmor | sudo tee /usr/share/keyrings/couchdb-archive-keyring.gpg >/dev/null 2>&1
+      source /etc/os-release
+      echo "deb [signed-by=/usr/share/keyrings/couchdb-archive-keyring.gpg] https://apache.jfrog.io/artifactory/couchdb-deb/ ${VERSION_CODENAME} main" \
+          | sudo tee /etc/apt/sources.list.d/couchdb.list >/dev/null
+      sudo apt update
+      sudo debconf-set-selections <<SEED
+      couchdb couchdb/mode select standalone
+      couchdb couchdb/mode seen true
+      couchdb couchdb/cookie string sofa
+      couchdb couchdb/cookie seen true
+      couchdb couchdb/bindaddress string 127.0.0.1
+      couchdb couchdb/bindaddress seen true
+      couchdb couchdb/adminpass password ${COUCHDB_PASSWORD}
+      couchdb couchdb/adminpass seen true
+      couchdb couchdb/adminpass_again password ${COUCHDB_PASSWORD}
+      couchdb couchdb/adminpass_again seen true
+      SEED
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y couchdb
+  - prepare: |
+      cd sofa
+      make prepare
+      mix deps.get
+  # start CouchDB early so it is up by the time the integration tests run.
+  # See test/integration/README.md for the expected credentials.
+  #
+  # Sourcehut build guests do NOT run systemd as PID 1 (it is the task shell),
+  # so `service`/`systemctl` would fail. Launch the couchdb binary directly.
+  - start-couchdb: |
+      sudo tee -a /opt/couchdb/etc/local.ini >/dev/null <<'INI'
+
+      [couchdb]
+      single_node = true
+
+      [admins]
+      admin = passwd
+      INI
+      sudo -i -u couchdb /opt/couchdb/bin/couchdb >/tmp/couchdb.log 2>&1 &
+      for i in $(seq 1 30); do
+        curl -sf http://localhost:5984/ && break
+        sleep 2
+      done
+      sudo cat /tmp/couchdb.log 2>/dev/null || true
+  - compile: |
+      cd sofa
+      env MIX_ENV=test mix compile --warnings-as-errors
+  - test: |
+      cd sofa
+      make test
+  - integration: |
+      cd sofa
+      curl -s http://localhost:5984/
+      env COUCHDB_URI=http://admin:passwd@localhost:5984/ make test-integration
+  # last, as it is slowest: dialyzer builds its PLT from scratch here
+  - lint: |
+      cd sofa
+      make lint
