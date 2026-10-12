@@ -1,120 +1,71 @@
 defmodule SofaDocTest do
   use ExUnit.Case, async: true
 
-  @plain_url "http://localhost:5984/"
-  @plain_sofa Sofa.init(@plain_url) |> Sofa.client()
-  @etag_header {"ETag", ~s("1-leet")}
-  @ifmatch_header {"If-Match", ~s("1-leet")}
+  import Plug.Conn, only: [put_resp_header: 3, get_req_header: 2]
+  import Sofa.BypassHelpers
 
-  import Tesla.Mock
+  @etag ~s("1-leet")
 
   setup do
-    mock(fn
-      # required for Sofa.connect!/1 in all tests
-      %{method: :get, url: @plain_url} ->
-        %Tesla.Env{status: 200, body: fixture("init_200.json")}
+    %{bypass: bypass, sofa: sofa} = start()
 
-      # fake a DB so we can open!/2 it
-      %{method: :get, url: @plain_url <> "mydb"} ->
-        %Tesla.Env{method: :get, status: 200, body: fixture("get_db_200.json")}
+    # required for Sofa.connect!/1 and Sofa.DB.open!/2 in all tests
+    Bypass.stub(bypass, "GET", "/", &json(&1, 200, "init_200.json"))
+    Bypass.stub(bypass, "GET", "/mydb", &json(&1, 200, "get_db_200.json"))
+    Bypass.stub(bypass, "HEAD", "/mydb", &empty(&1, 200))
 
-      %{method: :head, url: @plain_url <> "mydb"} ->
-        %Tesla.Env{method: :head, status: 200, body: ""}
+    # actual doc tests start here
+    # https://docs.couchdb.org/en/stable/api/document/common.html
 
-      # actual doc tests start here
-      # https://docs.couchdb.org/en/stable/api/document/common.html
+    # HEAD doc
+    Bypass.stub(bypass, "HEAD", "/mydb/missing", &empty(&1, 404))
 
-      # HEAD doc
-      %{method: :head, url: @plain_url <> "mydb/missing"} ->
-        %Tesla.Env{method: :head, status: 404, body: ""}
-
-      %{method: :head, url: @plain_url <> "mydb/exists"} ->
-        %Tesla.Env{method: :head, status: 200, headers: [@etag_header]}
-
-      # GET doc
-      %{method: :get, url: @plain_url <> "mydb/missing"} ->
-        %Tesla.Env{method: :get, status: 404, body: ""}
-
-      %{method: :get, url: @plain_url <> "mydb/exists"} ->
-        %Tesla.Env{method: :get, status: 200, body: fixture("get_doc_200.json")}
-
-      # DELETE doc
-      %{method: :delete, url: @plain_url <> "mydb/missing"} ->
-        %Tesla.Env{
-          method: :delete,
-          status: 404,
-          headers: [@ifmatch_header],
-          body: fixture("delete_doc_404.json")
-        }
-
-      %{method: :delete, url: @plain_url <> "mydb/wrong_rev"} ->
-        %Tesla.Env{
-          method: :delete,
-          status: 409,
-          headers: [],
-          body: fixture("delete_doc_409.json")
-        }
-
-      %{method: :delete, url: @plain_url <> "mydb/denied"} ->
-        %Tesla.Env{
-          method: :delete,
-          status: 401,
-          headers: [],
-          body: fixture("put_doc_401.json")
-        }
-
-      %{method: :delete, url: @plain_url <> "mydb/exists"} ->
-        %Tesla.Env{
-          method: :delete,
-          status: 200,
-          headers: [@ifmatch_header],
-          body: fixture("delete_doc_200.json")
-        }
-
-      # PUT doc
-      %{method: :put, url: @plain_url <> "mydb/new"} ->
-        %Tesla.Env{
-          method: :put,
-          status: 201,
-          body: fixture("put_doc_201.json")
-        }
-
-      %{method: :put, url: @plain_url <> "mydb/underscore"} ->
-        %Tesla.Env{
-          method: :put,
-          status: 400,
-          body: fixture("put_doc_400.json")
-        }
-
-      %{method: :put, url: @plain_url <> "mydb/denied"} ->
-        %Tesla.Env{
-          method: :put,
-          status: 401,
-          body: fixture("put_doc_401.json")
-        }
-
-      %{method: :put, url: @plain_url <> "mydb/invalid_user_doc"} ->
-        %Tesla.Env{
-          method: :put,
-          status: 403,
-          body: fixture("put_doc_403.json")
-        }
-
-      %{method: :put, url: @plain_url <> "mydb/wrong_rev"} ->
-        %Tesla.Env{
-          method: :put,
-          status: 409,
-          headers: [@ifmatch_header],
-          body: fixture("put_doc_409.json")
-        }
+    Bypass.stub(bypass, "HEAD", "/mydb/exists", fn conn ->
+      conn |> put_resp_header("etag", @etag) |> empty(200)
     end)
 
-    :ok
+    # GET doc
+    Bypass.stub(bypass, "GET", "/mydb/missing", &json(&1, 404, "get_doc_404.json"))
+    Bypass.stub(bypass, "GET", "/mydb/exists", &json(&1, 200, "get_doc_200.json"))
+
+    # DELETE doc, which must carry the rev as an If-Match header
+    Bypass.stub(bypass, "DELETE", "/mydb/missing", fn conn ->
+      assert get_req_header(conn, "if-match") == ["stuff"]
+      json(conn, 404, "delete_doc_404.json")
+    end)
+
+    Bypass.stub(bypass, "DELETE", "/mydb/wrong_rev", &json(&1, 409, "delete_doc_409.json"))
+    Bypass.stub(bypass, "DELETE", "/mydb/denied", &json(&1, 401, "put_doc_401.json"))
+
+    Bypass.stub(bypass, "DELETE", "/mydb/exists", fn conn ->
+      assert get_req_header(conn, "if-match") == ["stuff"]
+      json(conn, 200, "delete_doc_200.json")
+    end)
+
+    # PUT doc, which must carry a JSON body with the matching _id
+    Bypass.stub(bypass, "PUT", "/mydb/new", fn conn ->
+      {conn, body} = json_body(conn)
+      assert %{"_id" => "new", "shiny" => true} = body
+      refute Map.has_key?(body, "_rev")
+      json(conn, 201, "put_doc_201.json")
+    end)
+
+    Bypass.stub(bypass, "PUT", "/mydb/underscore", &json(&1, 400, "put_doc_400.json"))
+    Bypass.stub(bypass, "PUT", "/mydb/denied", &json(&1, 401, "put_doc_401.json"))
+    Bypass.stub(bypass, "PUT", "/mydb/invalid_user_doc", &json(&1, 403, "put_doc_403.json"))
+
+    Bypass.stub(bypass, "PUT", "/mydb/wrong_rev", fn conn ->
+      {conn, body} = json_body(conn)
+      assert body["_rev"] == "1-badcafe"
+      json(conn, 409, "put_doc_409.json")
+    end)
+
+    %{db: Sofa.connect!(sofa) |> Sofa.DB.open!("mydb"), sofa: sofa}
   end
 
-  test "GET /mydb returns 200 OK" do
+  test "GET /mydb returns 200 OK", %{sofa: sofa} do
     expected = fixture("get_db_200.json")
-    response = Sofa.connect!(@plain_sofa) |> Sofa.DB.info("mydb")
+    response = Sofa.connect!(sofa) |> Sofa.DB.info("mydb")
 
     assert {:ok, %Sofa{},
             %Sofa.Response{
@@ -124,155 +75,75 @@ defmodule SofaDocTest do
             }} = response
   end
 
-  test "HEAD /mydb/missing returns :false" do
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.exists?("missing")
-
-    assert !response
+  test "HEAD /mydb/missing returns :false", %{db: db} do
+    refute Sofa.Doc.exists?(db, "missing")
+    assert {:error, :not_found} = Sofa.Doc.exists(db, "missing")
   end
 
-  test "HEAD /mydb/exists returns 200 OK" do
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.exists?("exists")
-
-    assert response
+  test "HEAD /mydb/exists returns 200 OK with rev from ETag", %{db: db} do
+    assert Sofa.Doc.exists?(db, "exists")
+    assert {:ok, %Sofa.Doc{id: "exists", rev: "1-leet"}} = Sofa.Doc.exists(db, "exists")
   end
 
   # DELETE doc
   # https://docs.couchdb.org/en/stable/api/document/common.html
-  test "DELETE /mydb/missing returns 404 Not Found" do
+  test "DELETE /mydb/missing returns 404 Not Found", %{db: db} do
     doc = Sofa.Doc.from_map(%{"_id" => "missing", "_rev" => "stuff"})
-
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.delete(doc)
-
-    assert {:error, :not_found} = response
+    assert {:error, :not_found} = Sofa.Doc.delete(db, doc)
   end
 
-  test "DELETE /mydb/wrong_rev returns 409 Conflict" do
+  test "DELETE /mydb/wrong_rev returns 409 Conflict", %{db: db} do
     doc = Sofa.Doc.from_map(%{"_id" => "wrong_rev", "_rev" => "wrong_rev"})
-
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.delete(doc)
-
-    assert {:error, :conflict} = response
+    assert {:error, :conflict} = Sofa.Doc.delete(db, doc)
   end
 
-  test "DELETE /mydb/exists returns 200 OK" do
-    doc = Sofa.Doc.from_map(%{"_id" => "exists", "_rev" => "stuff"})
-
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.delete(doc)
-
-    assert :ok = response
-  end
-
-  test "DELETE /mydb/denied returns 401 Unauthorized" do
+  test "DELETE /mydb/denied returns 401 Unauthorized", %{db: db} do
     doc = Sofa.Doc.from_map(%{"_id" => "denied", "_rev" => "stuff"})
+    assert {:error, :unauthorized} = Sofa.Doc.delete(db, doc)
+  end
 
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.delete(doc)
-
-    assert {:error, :unauthorized} = response
+  test "DELETE /mydb/exists returns 200 OK", %{db: db} do
+    doc = Sofa.Doc.from_map(%{"_id" => "exists", "_rev" => "stuff"})
+    assert :ok = Sofa.Doc.delete(db, doc)
   end
 
   # GET doc
-  test "GET /mydb/missing returns {:error, :not_found}" do
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.get("missing")
-
-    assert {:error, :not_found} = response
+  test "GET /mydb/missing returns {:error, :not_found}", %{db: db} do
+    assert {:error, :not_found} = Sofa.Doc.get(db, "missing")
   end
 
-  test "GET /mydb/exists returns %Sofa.Doc{} struct" do
+  test "GET /mydb/exists returns %Sofa.Doc{} struct", %{db: db} do
     expected = fixture("get_doc_200.json") |> Sofa.Doc.from_map()
-
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.get("exists")
-
-    assert Map.equal?(expected, response)
+    assert Map.equal?(expected, Sofa.Doc.get(db, "exists"))
   end
 
-  test "PUT /mydb/new returns 201 Created and updated doc" do
+  # PUT doc
+  test "PUT /mydb/new returns 201 Created and updated doc", %{db: db} do
     new = Sofa.Doc.from_map(%{"_id" => "new", "shiny" => true})
-
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.put(new)
-
-    assert {:ok, %Sofa.Doc{id: "new", rev: "1-leet"}} = response
+    assert {:ok, %Sofa.Doc{id: "new", rev: "1-leet"}} = Sofa.Doc.put(db, new)
   end
 
-  test "PUT /mydb/underscore returns 400 Bad Request" do
-    fixture("put_doc_400.json")
-
+  test "PUT /mydb/underscore returns 400 Bad Request", %{db: db} do
     invalid = Sofa.Doc.from_map(%{"_id" => "underscore", "_invalid" => true})
-
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.put(invalid)
-
-    assert {:error, :bad_request} = response
+    assert {:error, :bad_request} = Sofa.Doc.put(db, invalid)
   end
 
-  test "PUT /mydb/denied returns 401 Unauthorized" do
-    fixture("put_doc_401.json")
-
-    denied = Sofa.Doc.new("denied")
-
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.put(denied)
-
-    assert {:error, :unauthorized} = response
+  test "PUT /mydb/denied returns 401 Unauthorized", %{db: db} do
+    assert {:error, :unauthorized} = Sofa.Doc.put(db, Sofa.Doc.new("denied"))
   end
 
-  test "PUT /mydb/invalid_user_doc returns 403 Forbidden" do
-    fixture("put_doc_403.json")
-
-    invalid = Sofa.Doc.new("invalid_user_doc")
-
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.put(invalid)
-
-    assert {:error, :forbidden} = response
+  test "PUT /mydb/invalid_user_doc returns 403 Forbidden", %{db: db} do
+    assert {:error, :forbidden} = Sofa.Doc.put(db, Sofa.Doc.new("invalid_user_doc"))
   end
 
-  test "PUT /mydb/wrong_rev returns 409 Conflict" do
-    fixture("put_doc_409.json")
-
+  test "PUT /mydb/wrong_rev returns 409 Conflict", %{db: db} do
     wrong_rev =
       Sofa.Doc.from_map(%{"_id" => "wrong_rev", "shiny" => true}) |> Map.put(:rev, "1-badcafe")
 
-    response =
-      Sofa.connect!(@plain_sofa)
-      |> Sofa.DB.open!("mydb")
-      |> Sofa.Doc.put(wrong_rev)
-
-    assert {:error, :conflict} = response
+    assert {:error, :conflict} = Sofa.Doc.put(db, wrong_rev)
   end
 
+  # pure functions, no HTTP involved
   test "new/1 accepts id string, %{id: id} and %{id: id, body: body}" do
     assert %Sofa.Doc{id: "a", body: %{}} = Sofa.Doc.new("a")
     assert %Sofa.Doc{id: "b", body: %{}} = Sofa.Doc.new(%{id: "b"})
@@ -319,7 +190,6 @@ defmodule SofaDocTest do
 
   test "from_map handles type-as-atom correctly" do
     with_type = %Sofa.Doc{Sofa.Doc.new("whatever") | type: :ok}
-
     assert with_type.type == :ok
   end
 
@@ -338,6 +208,4 @@ defmodule SofaDocTest do
         |> Sofa.Doc.from_map()
         |> Sofa.Doc.to_map()
       )
-
-  defp fixture(f), do: File.read!("test/fixtures/" <> f) |> Jason.decode!()
 end
