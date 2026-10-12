@@ -45,12 +45,10 @@ defmodule Sofa.Changes do
 
   `use Sofa.Changes` declares the behaviour and injects overridable
   defaults for every callback, so only `c:init/1` and `c:handle_change/2`
-  usually need writing.
-
-  The remaining `GenServer` callbacks (`handle_call`, `handle_cast`,
-  `handle_info`, `terminate`, `code_change`) are delegated to the callback
-  module with its own state threaded through, and `c:handle_error/2`
-  decides what to do when a request fails.
+  usually need writing. The remaining `GenServer` callbacks (`handle_call`,
+  `handle_cast`, `handle_info`, `terminate`, `code_change`) are delegated to
+  the callback module with its own state threaded through, and
+  `c:handle_error/2` decides what to do when a request fails.
 
   ## Streaming and reconnecting
 
@@ -146,9 +144,9 @@ defmodule Sofa.Changes do
 
   `{:retry, state}` reconnects right away, `{:retry, ms, state}` after
   `ms` milliseconds, `{:retry, :infinity, state}` waits for `retry_now/1`,
-  and `{:stop, reason, state}` stops the follower. The default waits 60
-  seconds, which also prevents a follower with bad credentials from
-  tripping CouchDB's account lockout timer.
+  and `{:stop, reason, state}` stops the follower. Every reconnect adds up
+  to 500 ms of jitter. The default waits 60 seconds, which also keeps a
+  follower with bad credentials from tripping CouchDB's account lockout.
   """
   @callback handle_error(error(), state :: term()) ::
               {:retry, new_state}
@@ -224,8 +222,7 @@ defmodule Sofa.Changes do
     end
   end
 
-  # The follower's own state: the callback module's state lives in `mstate`.
-  # Fields are documented where they are first used.
+  # The follower's own state. The callback module's state lives in `mstate`.
   defstruct [
     :module,
     :mstate,
@@ -398,6 +395,16 @@ defmodule Sofa.Changes do
     end
   end
 
+  # a 400 means the request itself is wrong, typically a `since` the server
+  # no longer knows. Nothing a retry would fix, so the follower stops
+  def handle_info(
+        {ref, :done, %Req.Response{status: 400, body: body}},
+        state = %__MODULE__{ref: ref}
+      ) do
+    Logger.error("#{inspect(state.module)}: _changes request rejected: #{inspect(body)}")
+    {:stop, :bad_request, stop_stream(state)}
+  end
+
   def handle_info({ref, :done, %Req.Response{status: status}}, state = %__MODULE__{ref: ref}) do
     Logger.warning("#{inspect(state.module)}: _changes request failed with HTTP #{status}")
     state |> stop_stream() |> handle_error(reason(status))
@@ -562,7 +569,6 @@ defmodule Sofa.Changes do
   end
 
   @spec reason(pos_integer() | Exception.t()) :: error() | term()
-  defp reason(400), do: :bad_request
   defp reason(401), do: :unauthorized
   defp reason(403), do: :forbidden
   defp reason(404), do: :not_found
