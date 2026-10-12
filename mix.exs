@@ -16,6 +16,7 @@ defmodule Sofa.MixProject do
       dialyzer: dialyzer(),
       docs: docs(),
       elixir: "~> 1.17",
+      elixirc_paths: elixirc_paths(Mix.env()),
       id: version,
       package: package(),
       start_permanent: Mix.env() == :prod,
@@ -29,6 +30,10 @@ defmodule Sofa.MixProject do
       mod: {Sofa.Application, []}
     ]
   end
+
+  # test/support holds Bypass helpers shared by the unit tests
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   defp version() do
     case File.dir?(".git") do
@@ -124,11 +129,13 @@ defmodule Sofa.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:bypass, "~> 2.1", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:jason, "~> 1.4"},
       {:mint, "~> 1.7"},
+      {:req, "~> 0.7"},
       {:tesla, "~> 1.14"}
     ]
   end
