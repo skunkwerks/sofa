@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `Sofa.Response.error/1`, the status-to-atom mapping every module now uses
+
 ## 0.5.0
 
 - Use a Firecracker VM in Github Actions
