@@ -1,0 +1,24 @@
+{
+    "docs": [
+        {
+            "_id": "176694",
+            "_rev": "1-54f8e950cc338d2385d9b0cda2fd918e",
+            "year": 2011,
+            "title": "The Tragedy of Man"
+        },
+        {
+            "_id": "780504",
+            "_rev": "1-5f14bab1a1e9ac3ebdf85905f47fb084",
+            "year": 2011,
+            "title": "Drive"
+        }
+    ],
+    "bookmark": "g1AAAABweJzLYWBgYMpgSmHgKy5JLCrJTq2MT8lPzkzJBYozmxgYmxgbGJmYGxkZGhkYWFqZ",
+    "execution_stats": {
+        "total_keys_examined": 200,
+        "total_docs_examined": 200,
+        "total_quorum_docs_examined": 0,
+        "results_returned": 2,
+        "execution_time_ms": 5.52
+    }
+}
