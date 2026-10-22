@@ -4,7 +4,7 @@ defmodule SofaMangoTest do
   use ExUnit.Case, async: true
 
   import Plug.Conn, only: [put_resp_content_type: 2, resp: 3]
-  import Sofa.BypassHelpers, only: [start: 0, json: 3, json_body: 1, fixture: 1, empty: 2]
+  import Sofa.BypassHelpers, only: [start: 0, json: 3, json_body: 1, empty: 2]
 
   alias Sofa.Mango
 
