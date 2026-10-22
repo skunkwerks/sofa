@@ -131,16 +131,28 @@ defmodule SofaCouchDBTest do
     assert body["password_scheme"] == "pbkdf2"
     assert body["roles"] == ["users"]
 
-    # the new user can authenticate with the original password
-    assert %Sofa{} = Sofa.connect!(as_user(name, "apple"))
+    # the new user can authenticate with the original password. CouchDB only
+    # learns of the user via its auth cache listening on the _users changes
+    # feed, so a login straight after creation can briefly see a 401
+    assert %Sofa{} = login_eventually(as_user(name, "apple"))
 
     # reset drops the stale hash fields and CouchDB accepts the new password
     assert {:ok, %Sofa.Doc{rev: "2-" <> _}} =
              Sofa.User.put(admin, Sofa.User.reset_password(fetched, "pear"))
 
-    assert %Sofa{} = Sofa.connect!(as_user(name, "pear"))
+    # CouchDB refreshes its auth cache from the _users changes feed, so a login
+    # straight after a reset can still see the old hash. Give it a moment
+    assert %Sofa{} = login_eventually(as_user(name, "pear"))
     assert_raise Sofa.Error, fn -> Sofa.connect!(as_user(name, "apple")) end
     assert {:error, :not_found} = Sofa.User.get(admin, "sofa_ci_nobody")
+  end
+
+  defp login_eventually(sofa, attempts \\ 5) do
+    case Sofa.connect(sofa) do
+      {:ok, connected} -> connected
+      {:error, _} when attempts > 1 -> Process.sleep(500) && login_eventually(sofa, attempts - 1)
+      {:error, reason} -> raise Sofa.Error, "login still refused after reset: #{inspect(reason)}"
+    end
   end
 
   defp as_user(name, password) do
