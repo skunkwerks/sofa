@@ -35,6 +35,28 @@ defmodule SofaDocTest do
 
     Bypass.stub(bypass, "GET", "/mydb/exists", &json(&1, 200, "get_doc_200.json"))
 
+    # attila's stubs, inlined when asked for, as CouchDB does
+    test = self()
+
+    Bypass.stub(bypass, "GET", "/mydb/attila", fn conn ->
+      conn = Plug.Conn.fetch_query_params(conn)
+      send(test, {:query, conn.query_params})
+      doc = fixture("get_doc_with_attachment_stubs_200.json")
+
+      doc =
+        if conn.query_params["attachments"] == "true" do
+          update_in(doc, ["_attachments", "the_hun.txt"], fn stub ->
+            stub |> Map.drop(["stub", "length"]) |> Map.put("data", Base.encode64("the hun!"))
+          end)
+        else
+          doc
+        end
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(doc))
+    end)
+
     # DELETE doc, which must carry the rev as an If-Match header
     Bypass.stub(bypass, "DELETE", "/mydb/missing", fn conn ->
       assert get_req_header(conn, "if-match") == ["stuff"]
@@ -123,6 +145,35 @@ defmodule SofaDocTest do
     assert Sofa.Doc.exists?(db, "sp ace")
     assert Sofa.Doc.exists?(db, "_design/app")
     assert Sofa.Doc.exists?(db, "org.couchdb.user:jan")
+  end
+
+  test "GET with attachments: true inlines attachment content", %{db: db} do
+    assert %Sofa.Doc{attachments: atts} = Sofa.Doc.get(db, "attila", attachments: true)
+    assert %Sofa.Attachment{data: "the hun!", length: 8, revpos: 2} = atts["the_hun.txt"]
+    assert %Sofa.Attachment{data: nil, length: 159_877} = atts["helmet.png"]
+  end
+
+  test "get/3 encodes att_encoding_info and atts_since, ignoring other options", %{db: db} do
+    assert %Sofa.Doc{} =
+             Sofa.Doc.get(db, "attila",
+               att_encoding_info: true,
+               atts_since: ["1-abc", "2-def"],
+               ignored: true
+             )
+
+    assert_receive {:query,
+                    %{"att_encoding_info" => "true", "atts_since" => ~s(["1-abc","2-def"])} =
+                      query}
+
+    refute Map.has_key?(query, "ignored")
+  end
+
+  test "get!/3 returns the document or raises", %{db: db} do
+    assert %Sofa.Doc{id: "everything"} = Sofa.Doc.get!(db, "exists")
+
+    assert_raise Sofa.Error, ~r/unable to get document missing: :not_found/, fn ->
+      Sofa.Doc.get!(db, "missing")
+    end
   end
 
   test "GET /mydb/exists returns %Sofa.Doc{} struct", %{db: db} do

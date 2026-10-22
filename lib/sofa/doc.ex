@@ -106,10 +106,23 @@ defmodule Sofa.Doc do
 
   - `{:error, :not_found}` # doc doesn't exist, or similar HTTP status
   - `%Sofa.Doc{}`          # doc exists and has metadata
+
+  ## Options
+
+  The attachment-related query parameters of the CouchDB document API:
+
+  - `attachments: true` fetches attachment content inline, so each
+    `%Sofa.Attachment{}` in `attachments` carries its `data`
+  - `att_encoding_info: true` adds `encoding` and `encoded_length` to the
+    stubs of attachments CouchDB stored compressed
+  - `atts_since: [revs]` fetches content only for attachments added after
+    the given revisions, as used when syncing
+
+      Sofa.Doc.get(db, "SpaghettiWithMeatballs", attachments: true)
   """
-  @spec get(Sofa.t(), String.t()) :: {:error, any()} | t()
-  def get(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
-    case Sofa.raw(sofa, Cushion.path([db, doc]), :get) do
+  @spec get(Sofa.t(), String.t(), keyword()) :: {:error, any()} | t()
+  def get(sofa = %Sofa{database: db}, doc, opts \\ []) when is_binary(doc) and is_list(opts) do
+    case Sofa.raw(sofa, Cushion.path([db, doc]), :get, get_params(opts)) do
       {:ok, _sofa,
        %Sofa.Response{
          status: 404
@@ -141,6 +154,31 @@ defmodule Sofa.Doc do
        }} ->
         {:error, :not_found}
     end
+  end
+
+  @doc """
+  Bang! version of `get/3`. Returns the document or raises `Sofa.Error`.
+  Lets a pipeline start from a fetched document.
+
+      Sofa.Doc.get!(db, "SpaghettiWithMeatballs") |> Sofa.Doc.attach("photo.jpg", bytes) |> Sofa.Doc.save!(db)
+  """
+  @spec get!(Sofa.t(), String.t(), keyword()) :: t()
+  def get!(sofa = %Sofa{}, doc, opts \\ []) when is_binary(doc) do
+    case get(sofa, doc, opts) do
+      {:error, reason} -> raise Sofa.Error, "unable to get document #{doc}: #{inspect(reason)}"
+      found = %Sofa.Doc{} -> found
+    end
+  end
+
+  # The query parameters get/3 accepts. atts_since is a JSON array
+  @spec get_params(keyword()) :: keyword()
+  defp get_params(opts) do
+    Enum.flat_map(opts, fn
+      {:attachments, true} -> [attachments: true]
+      {:att_encoding_info, true} -> [att_encoding_info: true]
+      {:atts_since, revs} when is_list(revs) -> [atts_since: Jason.encode!(revs)]
+      {_other, _value} -> []
+    end)
   end
 
   @doc """
