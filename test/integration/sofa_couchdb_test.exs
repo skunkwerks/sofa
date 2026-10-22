@@ -59,6 +59,14 @@ defmodule SofaCouchDBTest do
     assert is_list(tasks)
   end
 
+  test "raw!/5 returns the response, or raises on a CouchDB error", %{admin: admin} do
+    assert %Sofa.Response{status: 200, body: %{"status" => "ok"}} = Sofa.raw!(admin, "_up")
+
+    assert_raise Sofa.Error, ~r/unhandled error in get sofa_ci_no_such_db/, fn ->
+      Sofa.raw!(admin, "sofa_ci_no_such_db")
+    end
+  end
+
   test "raw/6 returns a transport error for an unreachable server" do
     sofa = Sofa.init("http://localhost:1/") |> Sofa.client()
     assert {:error, %Req.TransportError{reason: :econnrefused}} = Sofa.raw(sofa, "/")
