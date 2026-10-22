@@ -134,6 +134,7 @@ defmodule Sofa.MixProject do
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:bypass, "~> 2.1", only: :test},
       {:jason, "~> 1.4"},
+      {:mime, "~> 2.0"},
       {:req, "~> 0.7"}
     ]
   end
