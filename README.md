@@ -69,8 +69,8 @@ API transparently.
 - [x] user:     `Sofa.User.*`
 - [x] changes:  `Sofa.Changes.*`
 - [x] attachments: `Sofa.Attachment.*`
+- [x] views:    `Sofa.View.*`, including `_all_docs` and `_design_docs`
 - [ ] transparent Struct API
-- [ ] view:     `Sofa.View.*`
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
 - [ ] embeddable within CouchDB BEAM runtime
@@ -204,6 +204,22 @@ att.data
 Sofa.Doc.get!(db, "SpaghettiWithMeatballs", attachments: true)
 |> Sofa.Doc.detach("photo.jpg")
 |> Sofa.Doc.save!(db)
+```
+
+### Reading with Views
+
+Views, `_all_docs` and `_design_docs` share one shape, a `%Sofa.View{}`
+of rows. Keys are JSON values, `keys` goes as a `POST`, `include_docs`
+gives each row a `%Sofa.Doc{}`, and `stream/4` pages through results of
+any size:
+
+```elixir
+{:ok, %Sofa.View{rows: rows}} = Sofa.View.query(db, "recipes", "by_ingredient", key: "meatballs")
+{:ok, _} = Sofa.View.all_docs(db, startkey: "L", endkey: "T", include_docs: true)
+
+Sofa.View.stream(db, "recipes", "by_title", limit: 100)
+|> Stream.map(& &1.key)
+|> Enum.take(1000)
 ```
 
 ### Following Changes

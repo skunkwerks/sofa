@@ -4,6 +4,9 @@
 
 - Improve CI resiliency under Github actions sluggishness
 - Add `Sofa.Response.error/1`, the status-to-atom mapping every module now uses
+- Add `Sofa.View` for views, `_all_docs` and `_design_docs`, with JSON key
+    encoding, `keys` as a `POST`, the `/queries` endpoint and a lazy `stream/4`
+    that pages by the last row
 
 ## 0.5.0
 
