@@ -18,6 +18,8 @@ defmodule SofaCouchDBTest do
     # sure both exist before creating any users in the tests below.
     ensure_db(admin, "_users")
     ensure_db(admin, "_global_changes")
+    await_auth_listener(%Sofa{admin | database: "_users"})
+
     db = "sofa_ci_#{System.unique_integer([:positive])}"
     {:ok, admin, _resp} = Sofa.DB.create(admin, db)
     on_exit(fn -> {:ok, _, _} = Sofa.DB.delete(admin, db) end)
@@ -145,7 +147,7 @@ defmodule SofaCouchDBTest do
     # the new user can authenticate with the original password. CouchDB only
     # learns of the user via its auth cache listening on the _users changes
     # feed, so a login straight after creation can briefly see a 401
-    assert %Sofa{} = login_eventually(as_user(name, "apple"))
+    assert %Sofa{} = eventually("login refused", fn -> Sofa.connect(as_user(name, "apple")) end)
 
     # reset drops the stale hash fields and CouchDB accepts the new password
     assert {:ok, %Sofa.Doc{rev: "2-" <> _}} =
@@ -153,16 +155,34 @@ defmodule SofaCouchDBTest do
 
     # CouchDB refreshes its auth cache from the _users changes feed, so a login
     # straight after a reset can still see the old hash. Give it a moment
-    assert %Sofa{} = login_eventually(as_user(name, "pear"))
+    assert %Sofa{} =
+             eventually("login refused after reset", fn -> Sofa.connect(as_user(name, "pear")) end)
+
     assert_raise Sofa.Error, fn -> Sofa.connect!(as_user(name, "apple")) end
     assert {:error, :not_found} = Sofa.User.get(admin, "sofa_ci_nobody")
   end
 
-  defp login_eventually(sofa, attempts \\ 5) do
-    case Sofa.connect(sofa) do
-      {:ok, connected} -> connected
-      {:error, _} when attempts > 1 -> Process.sleep(500) && login_eventually(sofa, attempts - 1)
-      {:error, reason} -> raise Sofa.Error, "login still refused after reset: #{inspect(reason)}"
+  defp await_auth_listener(users) do
+    eventually(
+      "auth cache listener never started",
+      fn -> with %Sofa.Doc{} = ddoc <- Sofa.Doc.get(users, "_design/_auth"), do: {:ok, ddoc} end,
+      40
+    )
+  end
+
+  # retries fun every 500ms until it returns {:ok, result}, and raises with
+  # the last error once the attempts run out
+  defp eventually(what, fun, attempts \\ 5) do
+    case fun.() do
+      {:ok, result} ->
+        result
+
+      {:error, _} when attempts > 1 ->
+        Process.sleep(500)
+        eventually(what, fun, attempts - 1)
+
+      {:error, reason} ->
+        raise Sofa.Error, "#{what}: #{inspect(reason)}"
     end
   end
 
