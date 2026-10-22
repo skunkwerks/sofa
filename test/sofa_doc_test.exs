@@ -175,8 +175,9 @@ defmodule SofaDocTest do
       |> Sofa.Doc.from_map()
       |> Map.from_struct()
 
+    # a malformed _attachments value is dropped rather than passed through
     assert Map.equal?(pruned_map, %{
-             attachments: "blah",
+             attachments: %{},
              body: %{"key" => "important"},
              id: "toasty",
              rev: "blah",
@@ -196,7 +197,7 @@ defmodule SofaDocTest do
     m = %{"_rev" => "1-leet", "_id" => "abc123", "type" => "Sofa.Doc"}
 
     assert Map.equal?(Sofa.Doc.from_map(m), %Sofa.Doc{
-             attachments: nil,
+             attachments: %{},
              body: %{},
              id: "abc123",
              rev: "1-leet",
@@ -207,6 +208,51 @@ defmodule SofaDocTest do
   test "from_map handles type-as-atom correctly" do
     with_type = %Sofa.Doc{Sofa.Doc.new("whatever") | type: :ok}
     assert with_type.type == :ok
+  end
+
+  test "attachment stubs become structs and back again" do
+    doc = fixture("get_doc_with_attachment_stubs_200.json") |> Sofa.Doc.from_map()
+
+    assert %Sofa.Attachment{
+             name: "helmet.png",
+             content_type: "image/png",
+             revpos: 4,
+             digest: "md5-hCzUwAJpP8b6cq+SvEFfTQ==",
+             length: 159_877,
+             data: nil
+           } = doc.attachments["helmet.png"]
+
+    assert Map.keys(doc.attachments) == ["helmet.png", "the_hun.json", "the_hun.txt"]
+
+    assert Sofa.Doc.to_map(doc)["_attachments"] ==
+             fixture("get_doc_with_attachment_stubs_200.json")["_attachments"]
+  end
+
+  test "attach/4 and detach/2 build inline attachments that save as base64" do
+    doc =
+      Sofa.Doc.new("recipe")
+      |> Sofa.Doc.attach("recipe.txt", "1. Cook spaghetti")
+      |> Sofa.Doc.attach("photo", <<255, 216>>, content_type: "image/jpeg")
+      |> Sofa.Doc.attach("old.txt", "gone")
+      |> Sofa.Doc.detach("old.txt")
+
+    assert %{"recipe.txt" => %Sofa.Attachment{content_type: "text/plain", length: 17}} =
+             doc.attachments
+
+    assert Sofa.Doc.to_map(doc)["_attachments"] == %{
+             "recipe.txt" => %{
+               "content_type" => "text/plain",
+               "data" => Base.encode64("1. Cook spaghetti")
+             },
+             "photo" => %{"content_type" => "image/jpeg", "data" => Base.encode64(<<255, 216>>)}
+           }
+
+    # inline content survives the round trip, as CouchDB returns it with attachments=true
+    assert Sofa.Doc.to_map(doc) |> Sofa.Doc.from_map() == doc
+  end
+
+  test "a document without attachments has no _attachments key" do
+    refute Map.has_key?(Sofa.Doc.to_map(Sofa.Doc.new("plain")), "_attachments")
   end
 
   test "docs round trip cleanly from map->struct->map again" do

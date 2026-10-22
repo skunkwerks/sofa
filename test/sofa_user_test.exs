@@ -76,7 +76,7 @@ defmodule SofaUserTest do
   # GET user
   test "GET /_users/org.couchdb.user:dch returns 200 OK with correct body", %{users: users} do
     assert Map.equal?(Sofa.User.get(users, "dch"), %Sofa.Doc{
-             attachments: nil,
+             attachments: %{},
              body: %{
                "derived_key" => "36aa712d1e64c356feefca0e75f915d5b917a8f5",
                "iterations" => 20_000,

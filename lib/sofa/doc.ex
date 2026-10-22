@@ -5,11 +5,20 @@ defmodule Sofa.Doc do
   > If the only tool you have is CouchDB, then
   > everything looks like `{:ok, :relax}`
 
+  Attachments live in `attachments`, a map of name to `%Sofa.Attachment{}`.
+  `from_map/1` and `to_map/1` convert them to and from CouchDB's
+  `_attachments` stubs and inline content, so a document built with
+  `attach/4` saves its attachments in the same request, and a fetched
+  document keeps the stubs CouchDB needs to retain them on update.
+
   ## Examples
 
-      iex> Sofa.Doc.new()
+      iex> Sofa.Doc.new("smol")
+      %Sofa.Doc{attachments: %{}, body: %{}, id: "smol", rev: nil, type: nil}
 
   """
+
+  alias Sofa.Attachment
 
   defstruct attachments: %{},
             body: %{},
@@ -21,7 +30,7 @@ defmodule Sofa.Doc do
             type: nil
 
   @type t :: %__MODULE__{
-          attachments: map(),
+          attachments: %{optional(String.t()) => Attachment.t()},
           body: map(),
           id: binary(),
           rev: nil | binary(),
@@ -230,7 +239,7 @@ defmodule Sofa.Doc do
       %{}
       |> Map.put("_id", id)
       |> Map.put("_rev", rev)
-      |> Map.put("_attachments", atts)
+      |> Map.put("_attachments", attachments_to_map(atts))
       |> Map.put("type", coerce_to_json_string(type))
 
     # skip all top level keys with value nil
@@ -295,9 +304,45 @@ defmodule Sofa.Doc do
 
     # grab the rest we need them
     rev = Map.get(m, "_rev", nil)
-    atts = Map.get(m, "_attachments", nil)
+    atts = Map.get(m, "_attachments", %{}) |> attachments_from_map()
     type = Map.get(m, "type", "nil") |> coerce_to_elixir_type()
     %Sofa.Doc{attachments: atts, body: body, id: id, rev: rev, type: type}
+  end
+
+  # a document without attachments has no `_attachments` key at all
+  @spec attachments_to_map(%{optional(String.t()) => Attachment.t()}) :: map() | nil
+  defp attachments_to_map(atts) when map_size(atts) == 0, do: nil
+
+  defp attachments_to_map(atts),
+    do: Map.new(atts, fn {name, att} -> {name, Attachment.to_stub(att)} end)
+
+  @spec attachments_from_map(term()) :: %{optional(String.t()) => Attachment.t()}
+  defp attachments_from_map(atts) when is_map(atts),
+    do: Map.new(atts, fn {name, stub} -> {name, Attachment.from_stub(name, stub)} end)
+
+  defp attachments_from_map(_not_a_map), do: %{}
+
+  @doc """
+  Attaches content to a document, to be saved inline with it. The content
+  type comes from the name unless given, see `Sofa.Attachment.new/3`.
+
+      Sofa.Doc.new("recipe")
+      |> Sofa.Doc.attach("recipe.txt", "1. Cook spaghetti")
+      |> Sofa.Doc.attach("photo", photo_bytes, content_type: "image/jpeg")
+      |> Sofa.Doc.save(db)
+  """
+  @spec attach(t(), String.t(), binary(), keyword()) :: t()
+  def attach(doc = %Sofa.Doc{attachments: atts}, name, data, opts \\ []) when is_binary(name) do
+    %Sofa.Doc{doc | attachments: Map.put(atts, name, Attachment.new(name, data, opts))}
+  end
+
+  @doc """
+  Removes an attachment from a document. CouchDB deletes it when the
+  document is next saved without its stub.
+  """
+  @spec detach(t(), String.t()) :: t()
+  def detach(doc = %Sofa.Doc{attachments: atts}, name) when is_binary(name) do
+    %Sofa.Doc{doc | attachments: Map.delete(atts, name)}
   end
 
   @doc """
