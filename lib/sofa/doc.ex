@@ -181,6 +181,30 @@ defmodule Sofa.Doc do
   end
 
   @doc """
+  Saves a document, with the document first so it can end a pipeline that
+  builds it. The same as `put/2` otherwise.
+
+      Sofa.Doc.new(%{id: "smol", body: %{"cute" => true}}) |> Sofa.Doc.save(db)
+      #=> {:ok, %Sofa.Doc{id: "smol", rev: "1-..."}}
+  """
+  @spec save(t(), Sofa.t()) :: {:ok, t()} | {:error, any()}
+  def save(doc = %Sofa.Doc{}, sofa = %Sofa{}), do: put(sofa, doc)
+
+  @doc """
+  Bang! version of `save/2`. Returns the saved document, with its new rev,
+  or raises `Sofa.Error`. Lets a pipeline carry on with the saved document.
+
+      doc = Sofa.Doc.new("smol") |> Sofa.Doc.save!(db)
+  """
+  @spec save!(t(), Sofa.t()) :: t()
+  def save!(doc = %Sofa.Doc{id: id}, sofa = %Sofa{}) do
+    case put(sofa, doc) do
+      {:ok, doc} -> doc
+      {:error, reason} -> raise Sofa.Error, "unable to save document #{id}: #{inspect(reason)}"
+    end
+  end
+
+  @doc """
   Converts internal `%Sofa.Doc{}` format to CouchDB-native JSON-friendly map
 
   ## Examples

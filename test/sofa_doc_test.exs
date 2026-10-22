@@ -143,6 +143,22 @@ defmodule SofaDocTest do
     assert {:error, :conflict} = Sofa.Doc.put(db, wrong_rev)
   end
 
+  test "save/2 is put/2 with the document first, for pipelines", %{db: db} do
+    assert {:ok, %Sofa.Doc{id: "new", rev: "1-leet"}} =
+             Sofa.Doc.new(%{id: "new", body: %{"shiny" => true}}) |> Sofa.Doc.save(db)
+  end
+
+  test "save!/2 returns the saved document or raises", %{db: db} do
+    assert %Sofa.Doc{id: "new", rev: "1-leet"} =
+             Sofa.Doc.new(%{id: "new", body: %{"shiny" => true}}) |> Sofa.Doc.save!(db)
+
+    stale = Sofa.Doc.from_map(%{"_id" => "wrong_rev", "_rev" => "1-badcafe", "shiny" => true})
+
+    assert_raise Sofa.Error, ~r/unable to save document wrong_rev: :conflict/, fn ->
+      Sofa.Doc.save!(stale, db)
+    end
+  end
+
   # pure functions, no HTTP involved
   test "new/1 accepts id string, %{id: id} and %{id: id, body: body}" do
     assert %Sofa.Doc{id: "a", body: %{}} = Sofa.Doc.new("a")
