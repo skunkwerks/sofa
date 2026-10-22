@@ -12,6 +12,8 @@ defmodule SofaChangesLiveTest do
   @moduletag capture_log: true
   @moduletag timeout: 60_000
 
+  import Sofa.Design, only: [sigil_JS: 2]
+
   alias Sofa.{Changes, TestFollower}
 
   @couchdb_uri System.get_env("COUCHDB_URI", "http://admin:passwd@localhost:5984/")
@@ -145,7 +147,7 @@ defmodule SofaChangesLiveTest do
 
     test "filter=design_doc/name runs the filter function", %{db: db} do
       save!(db, "_design/filters", %{
-        "filters" => %{"important" => "function(doc, req) { return doc.important === true; }"}
+        "filters" => %{"important" => ~JS"function(doc, req) { return doc.important === true; }"}
       })
 
       follow(db, filter: "filters/important", since: :now)
