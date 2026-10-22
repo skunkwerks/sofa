@@ -171,7 +171,139 @@ defmodule Sofa.Attachment do
     end
   end
 
+  ## Writing, with the document first so uploads pipe
+
+  @typedoc "Content to upload: in memory, from a file, or any enumerable of binaries"
+  @type content :: binary() | {:file, Path.t()} | Enumerable.t()
+
+  @doc """
+  Uploads content as an attachment in its own request, and returns the
+  document with its new revision and the attachment's stub, ready for the
+  next write. The document comes first so that uploads pipe.
+
+  The document's `rev` is sent as `If-Match`, which CouchDB requires for an
+  existing document. A document without one, or a bare id, is created by
+  the upload, as the docs describe. Content is a binary, `{:file, path}`
+  streamed from disk, or any enumerable of binaries sent as a chunked
+  upload. The returned stub has no digest, as CouchDB computes it over
+  the bytes it stores, which may be compressed.
+
+  ## Options
+
+  - `content_type:` the MIME type, by default taken from the name via
+    `MIME.from_path/1`
+  - `rev:` a revision to use instead of the document's
+
+  ## Examples
+
+      doc
+      |> Sofa.Attachment.put!(db, "recipe.txt", File.read!("recipe.txt"))
+      |> Sofa.Attachment.put!(db, "video.mp4", {:file, "video.mp4"})
+  """
+  @spec put(doc_ref(), Sofa.t(), String.t(), content(), keyword()) ::
+          {:ok, Sofa.Doc.t()} | {:error, error()}
+  def put(doc, sofa = %Sofa{database: db}, name, content, opts \\ [])
+      when is_binary(db) and is_binary(name) do
+    content_type = Keyword.get(opts, :content_type) || MIME.from_path(name)
+    headers = [{"content-type", content_type} | if_match(Keyword.get(opts, :rev) || rev(doc))]
+    {body, req_opts} = upload(content)
+
+    case Sofa.raw(sofa, path(db, doc, name), :put, [], body, headers, req_opts) do
+      {:ok, _sofa, %Sofa.Response{status: status, body: %{"rev" => rev}}}
+      when status in [201, 202] ->
+        stub = %__MODULE__{
+          name: name,
+          content_type: content_type,
+          revpos: revpos(rev),
+          length: size(content)
+        }
+
+        doc = to_doc(doc)
+        {:ok, %Sofa.Doc{doc | rev: rev, attachments: Map.put(doc.attachments, name, stub)}}
+
+      other ->
+        error(other)
+    end
+  end
+
+  @doc "Bang! version of `put/5`. Returns the updated document or raises `Sofa.Error`."
+  @spec put!(doc_ref(), Sofa.t(), String.t(), content(), keyword()) :: Sofa.Doc.t()
+  def put!(doc, sofa = %Sofa{}, name, content, opts \\ []) do
+    case put(doc, sofa, name, content, opts) do
+      {:ok, doc} ->
+        doc
+
+      {:error, reason} ->
+        raise Sofa.Error, "unable to put attachment #{name} on #{id(doc)}: #{inspect(reason)}"
+    end
+  end
+
+  @doc """
+  Deletes an attachment, and returns the document with its new revision
+  and without the stub. A revision is required, from the document or as
+  `rev:`. `batch: :ok` defers the write as the docs describe.
+  """
+  @spec delete(doc_ref(), Sofa.t(), String.t(), keyword()) ::
+          {:ok, Sofa.Doc.t()} | {:error, error()}
+  def delete(doc, sofa = %Sofa{database: db}, name, opts \\ [])
+      when is_binary(db) and is_binary(name) do
+    rev =
+      Keyword.get(opts, :rev) || rev(doc) ||
+        raise(ArgumentError, "a revision is required to delete attachment #{name} of #{id(doc)}")
+
+    params = if Keyword.get(opts, :batch) == :ok, do: [batch: "ok"], else: []
+
+    case Sofa.raw(sofa, path(db, doc, name), :delete, params, "", if_match(rev)) do
+      {:ok, _sofa, %Sofa.Response{status: status, body: %{"rev" => rev}}}
+      when status in [200, 202] ->
+        doc = to_doc(doc)
+        {:ok, %Sofa.Doc{doc | rev: rev, attachments: Map.delete(doc.attachments, name)}}
+
+      other ->
+        error(other)
+    end
+  end
+
+  @doc "Bang! version of `delete/4`. Returns the updated document or raises `Sofa.Error`."
+  @spec delete!(doc_ref(), Sofa.t(), String.t(), keyword()) :: Sofa.Doc.t()
+  def delete!(doc, sofa = %Sofa{}, name, opts \\ []) do
+    case delete(doc, sofa, name, opts) do
+      {:ok, doc} ->
+        doc
+
+      {:error, reason} ->
+        raise Sofa.Error, "unable to delete attachment #{name} of #{id(doc)}: #{inspect(reason)}"
+    end
+  end
+
   ## request plumbing
+
+  @spec rev(doc_ref()) :: String.t() | nil
+  defp rev(%Sofa.Doc{rev: rev}), do: rev
+  defp rev(id) when is_binary(id), do: nil
+
+  @spec to_doc(doc_ref()) :: Sofa.Doc.t()
+  defp to_doc(doc = %Sofa.Doc{}), do: doc
+  defp to_doc(id) when is_binary(id), do: Sofa.Doc.new(id)
+
+  @spec if_match(String.t() | nil) :: [{String.t(), String.t()}]
+  defp if_match(nil), do: []
+  defp if_match(rev), do: [{"if-match", rev}]
+
+  # the revision number an attachment was added in is the new rev's prefix
+  @spec revpos(String.t()) :: pos_integer()
+  defp revpos(rev), do: rev |> String.split("-", parts: 2) |> hd() |> String.to_integer()
+
+  # a binary goes as the body. Files and enumerables stream as chunked uploads
+  @spec upload(content()) :: {binary(), keyword()}
+  defp upload(content) when is_binary(content), do: {content, []}
+  defp upload({:file, path}), do: {"", [body: File.stream!(path, 64_000)]}
+  defp upload(enumerable), do: {"", [body: enumerable]}
+
+  @spec size(content()) :: non_neg_integer() | nil
+  defp size(content) when is_binary(content), do: byte_size(content)
+  defp size({:file, path}), do: File.stat!(path).size
+  defp size(_enumerable), do: nil
 
   @spec path(String.t(), doc_ref(), String.t()) :: String.t()
   defp path(db, doc, name), do: Cushion.path([db, id(doc), name])

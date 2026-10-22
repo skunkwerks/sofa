@@ -4,7 +4,7 @@ defmodule SofaAttachmentHttpTest do
   use ExUnit.Case, async: true
 
   import Plug.Conn, only: [put_resp_header: 3, get_req_header: 2, fetch_query_params: 1, resp: 3]
-  import Sofa.BypassHelpers
+  import Sofa.BypassHelpers, only: [start: 0, json: 3, empty: 2]
 
   alias Sofa.Attachment
 
@@ -13,6 +13,7 @@ defmodule SofaAttachmentHttpTest do
 
   setup do
     %{bypass: bypass, sofa: sofa} = start()
+    test = self()
     Bypass.stub(bypass, "GET", "/", &json(&1, 200, "init_200.json"))
     Bypass.stub(bypass, "HEAD", "/recipes", &empty(&1, 200))
 
@@ -80,7 +81,42 @@ defmodule SofaAttachmentHttpTest do
 
     Bypass.stub(bypass, "HEAD", "/recipes/SpaghettiWithMeatballs/missing.txt", &empty(&1, 404))
 
+    # writes: report what arrived, answer with the next revision
+    Bypass.stub(bypass, "PUT", "/recipes/:doc/:name", fn conn ->
+      {conn, body} = read_all(conn)
+      send(test, {:put, conn.request_path, Map.new(conn.req_headers), body})
+
+      case get_req_header(conn, "if-match") do
+        ["9-stale"] -> json(conn, 409, "put_doc_409.json")
+        [] -> resp(conn, 201, ~s({"ok": true, "id": "fresh", "rev": "1-new"}))
+        ["1-abc"] -> resp(conn, 201, ~s({"ok": true, "id": "doc", "rev": "2-def"}))
+      end
+      |> put_resp_header("content-type", "application/json")
+    end)
+
+    Bypass.stub(bypass, "DELETE", "/recipes/:doc/:name", fn conn ->
+      conn = fetch_query_params(conn)
+      send(test, {:delete, conn.request_path, Map.new(conn.req_headers), conn.query_params})
+
+      case get_req_header(conn, "if-match") do
+        ["2-def"] ->
+          conn
+          |> put_resp_header("content-type", "application/json")
+          |> resp(200, ~s({"ok": true, "id": "doc", "rev": "3-ghi"}))
+
+        _ ->
+          json(conn, 404, "get_doc_404.json")
+      end
+    end)
+
     %{db: Sofa.connect!(sofa) |> Sofa.DB.open!("recipes")}
+  end
+
+  defp read_all(conn, acc \\ "") do
+    case Plug.Conn.read_body(conn) do
+      {:ok, body, conn} -> {conn, acc <> body}
+      {:more, body, conn} -> read_all(conn, acc <> body)
+    end
   end
 
   describe "head/4" do
@@ -172,6 +208,101 @@ defmodule SofaAttachmentHttpTest do
                    ~r/unable to get attachment missing.txt of SpaghettiWithMeatballs: :not_found/,
                    fn ->
                      Attachment.get!(db, "SpaghettiWithMeatballs", "missing.txt")
+                   end
+    end
+  end
+
+  describe "put/5 and put!/5" do
+    test "uploads with the content type and If-Match, returning the doc with its stub", %{db: db} do
+      doc = %Sofa.Doc{Sofa.Doc.new("doc") | rev: "1-abc"}
+      assert {:ok, doc} = Attachment.put(doc, db, "recipe.txt", @recipe)
+
+      assert_receive {:put, "/recipes/doc/recipe.txt", headers, @recipe}
+      assert headers["content-type"] == "text/plain"
+      assert headers["if-match"] == "1-abc"
+
+      assert %Sofa.Doc{rev: "2-def", attachments: %{"recipe.txt" => stub}} = doc
+
+      assert %Attachment{
+               content_type: "text/plain",
+               revpos: 2,
+               length: 48,
+               data: nil,
+               digest: nil
+             } = stub
+    end
+
+    test "a bare id creates the document, with an explicit content type", %{db: db} do
+      assert {:ok, %Sofa.Doc{id: "fresh", rev: "1-new"}} =
+               Attachment.put("fresh", db, "blob", <<0, 1>>, content_type: "application/x-sofa")
+
+      assert_receive {:put, "/recipes/fresh/blob",
+                      %{"content-type" => "application/x-sofa"} = headers, <<0, 1>>}
+
+      refute Map.has_key?(headers, "if-match")
+    end
+
+    @tag :tmp_dir
+    test "files and enumerables are streamed as chunked uploads", %{db: db, tmp_dir: dir} do
+      path = Path.join(dir, "recipe.txt")
+      File.write!(path, @recipe)
+      doc = %Sofa.Doc{Sofa.Doc.new("doc") | rev: "1-abc"}
+
+      assert {:ok, %Sofa.Doc{attachments: %{"recipe.txt" => %Attachment{length: 48}}}} =
+               Attachment.put(doc, db, "recipe.txt", {:file, path})
+
+      # the stream arrives whole. Cowboy hides the transfer-encoding it used
+      assert_receive {:put, "/recipes/doc/recipe.txt", _headers, @recipe}
+
+      assert {:ok, %Sofa.Doc{attachments: %{"parts.txt" => %Attachment{length: nil}}}} =
+               Attachment.put(doc, db, "parts.txt", ["1. Cook ", "spaghetti"])
+
+      assert_receive {:put, "/recipes/doc/parts.txt", _headers, "1. Cook spaghetti"}
+    end
+
+    test "a stale revision is a conflict, and put! raises on it", %{db: db} do
+      stale = %Sofa.Doc{Sofa.Doc.new("doc") | rev: "9-stale"}
+      assert {:error, :conflict} = Attachment.put(stale, db, "recipe.txt", @recipe)
+
+      assert_raise Sofa.Error, ~r/unable to put attachment recipe.txt on doc: :conflict/, fn ->
+        Attachment.put!(stale, db, "recipe.txt", @recipe)
+      end
+
+      assert %Sofa.Doc{rev: "2-def"} =
+               Attachment.put!(
+                 %Sofa.Doc{Sofa.Doc.new("doc") | rev: "1-abc"},
+                 db,
+                 "recipe.txt",
+                 @recipe
+               )
+    end
+  end
+
+  describe "delete/4 and delete!/4" do
+    test "sends If-Match and returns the doc without the stub", %{db: db} do
+      doc =
+        %Sofa.Doc{Sofa.Doc.new("doc") | rev: "1-abc"}
+        |> Attachment.put!(db, "recipe.txt", @recipe)
+
+      assert {:ok, doc} = Attachment.delete(doc, db, "recipe.txt", batch: :ok)
+
+      assert_receive {:delete, "/recipes/doc/recipe.txt", %{"if-match" => "2-def"},
+                      %{"batch" => "ok"}}
+
+      assert %Sofa.Doc{rev: "3-ghi", attachments: %{}} = doc
+    end
+
+    test "needs a revision, and delete! raises on failure", %{db: db} do
+      assert_raise ArgumentError, ~r/revision is required/, fn ->
+        Attachment.delete("doc", db, "recipe.txt")
+      end
+
+      assert {:error, :not_found} = Attachment.delete("doc", db, "recipe.txt", rev: "1-abc")
+
+      assert_raise Sofa.Error,
+                   ~r/unable to delete attachment recipe.txt of doc: :not_found/,
+                   fn ->
+                     Attachment.delete!("doc", db, "recipe.txt", rev: "1-abc")
                    end
     end
   end
