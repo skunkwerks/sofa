@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
 
+- Improve CI resiliency under Github actions sluggishness
 - Add `Sofa.Response.error/1`, the status-to-atom mapping every module now uses
 
 ## 0.5.0
