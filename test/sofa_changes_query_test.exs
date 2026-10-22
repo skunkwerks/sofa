@@ -98,6 +98,12 @@ defmodule SofaChangesQueryTest do
     assert Query.params(query) == [{"feed", "continuous"}, {"timeout", "500"}]
   end
 
+  test "dropping both heartbeat and timeout is refused" do
+    assert_raise ArgumentError, ~r/at least one of heartbeat: and timeout: is needed/, fn ->
+      Query.new(heartbeat: nil, timeout: nil)
+    end
+  end
+
   test "longpoll: true selects the longpoll feed without sending longpoll" do
     query = Query.new(longpoll: true)
     assert query.feed == :longpoll

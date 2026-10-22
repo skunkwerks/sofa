@@ -39,14 +39,14 @@ defmodule Sofa.Changes.Worker do
 
   @doc "The Req request for `query`, without the streaming sink, exposed for inspection."
   @spec request(Sofa.t(), Query.t()) :: Req.Request.t()
-  def request(%Sofa{client: client, database: database, timeout: timeout}, query = %Query{}) do
+  def request(%Sofa{client: client, database: database}, query = %Query{}) do
     Req.merge(
       client,
       [
         url: "/" <> database <> "/_changes",
         method: query.method,
         params: Query.params(query),
-        receive_timeout: receive_timeout(query, timeout)
+        receive_timeout: receive_timeout(query)
       ] ++ if(query.body, do: [json: query.body], else: [])
     )
   end
@@ -82,9 +82,9 @@ defmodule Sofa.Changes.Worker do
   defp into(%Query{}, _owner, _ref), do: []
 
   # the server sends a heartbeat or ends the response within these bounds.
-  # The follower's own watchdog is stricter, this only catches dead sockets
-  @spec receive_timeout(Query.t(), timeout() | nil) :: timeout()
-  defp receive_timeout(%Query{heartbeat: nil, timeout: nil}, default), do: default || 7_205_000
-  defp receive_timeout(%Query{heartbeat: nil, timeout: timeout}, _), do: timeout + 5_000
-  defp receive_timeout(%Query{heartbeat: heartbeat}, _), do: heartbeat * 2 + 5_000
+  # The follower's own watchdog is stricter, this only catches dead sockets.
+  # Query.new/1 refuses a query with neither.
+  @spec receive_timeout(Query.t()) :: timeout()
+  defp receive_timeout(%Query{heartbeat: nil, timeout: timeout}), do: timeout + 5_000
+  defp receive_timeout(%Query{heartbeat: heartbeat}), do: heartbeat * 2 + 5_000
 end

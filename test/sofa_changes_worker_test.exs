@@ -41,9 +41,5 @@ defmodule SofaChangesWorkerTest do
 
     assert Worker.request(@db, Query.new(heartbeat: nil, timeout: 500)).options[:receive_timeout] ==
              5500
-
-    # and a fallback when the caller disabled both
-    assert Worker.request(@db, Query.new(heartbeat: nil, timeout: nil)).options[:receive_timeout] ==
-             15_000
   end
 end

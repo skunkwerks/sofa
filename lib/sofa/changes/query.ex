@@ -16,7 +16,8 @@ defmodule Sofa.Changes.Query do
     `all_docs`, `now`)
   - strings are sent verbatim, so `style: "all_docs"` works as well
   - `nil` drops the parameter, so `heartbeat: nil` lets the server side
-    `timeout` end the response
+    `timeout` end the response. Dropping both is refused, as nothing would
+    ever end a quiet feed and a dead connection would go unnoticed
 
   A few options are special:
 
@@ -76,7 +77,8 @@ defmodule Sofa.Changes.Query do
   @doc """
   Builds a query from follower options, see the module documentation.
 
-  Raises `ArgumentError` on an unknown `:feed`.
+  Raises `ArgumentError` on an unknown `:feed`, or when both `:heartbeat`
+  and `:timeout` are `nil`.
   """
   @spec new(keyword()) :: t()
   def new(opts) when is_list(opts) do
@@ -90,6 +92,10 @@ defmodule Sofa.Changes.Query do
 
     feed = if longpoll, do: :longpoll, else: feed!(feed)
     since = since!(since)
+
+    if opts[:heartbeat] == nil and opts[:timeout] == nil do
+      raise ArgumentError, "at least one of heartbeat: and timeout: is needed, both were nil"
+    end
 
     {method, body, opts} =
       cond do
