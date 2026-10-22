@@ -2,7 +2,7 @@
 
 These tests run against a real CouchDB 3.x, and are excluded by default.
 
-    make test-integration
+    make integration
 
 By default they talk to the live development CouchDB at
 `http://admin:passwd@localhost:5984/`. Set `COUCHDB_URI` to point

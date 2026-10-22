@@ -48,7 +48,7 @@
     in `make lint`
 - `Sofa.client/2` accepts an optional Tesla adapter, overriding the configured one
 - Add integration tests against a real CouchDB, excluded by default, and run them
-    in a GitHub Actions workflow alongside `make lint`; see `make test-integration`
+    in a GitHub Actions workflow alongside `make lint`; see `make integration`
 - Add a sourcehut FreeBSD 15 build manifest running the same lint, unit and
     CouchDB integration tests against the `databases/couchdb3` package
 

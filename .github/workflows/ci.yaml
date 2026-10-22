@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  MIX_ENV: test
+  ELIXIR_ERL_OPTIONS: +fnu
   MIX_OS_DEPS_COMPILE_PARTITION_COUNT: 4
 
 permissions:
@@ -17,10 +17,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     name: Lint
-    env:
-      MIX_ENV: dev
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Elixir
         id: setup-beam
@@ -30,7 +28,7 @@ jobs:
           elixir-version: "1.20.3"
 
       - name: Cache deps
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             deps
@@ -40,15 +38,21 @@ jobs:
             ${{ runner.os }}-mix-lint-v1-
 
       - name: Cache PLTs
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.mix/plts
           key: ${{ runner.os }}-plt-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
           restore-keys: |
             ${{ runner.os }}-plt-
 
+      - name: Set version
+        run: git describe --dirty --abbrev=7 --tags --always --first-parent > .version
+
       - name: Install dependencies
-        run: mix deps.get
+        run: make prepare
+
+      - name: Compile
+        run: make build
 
       - name: Check for unused lock entries
         run: mix deps.unlock --check-unused
@@ -73,17 +77,17 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Elixir
         id: setup-beam
         uses: erlef/setup-beam@v1
         with:
           otp-version: "29"
-          elixir-version: "1.20.3"
+          elixir-version: "1.20.4"
 
       - name: Cache deps
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             deps
@@ -92,16 +96,57 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-test-v1-
 
+      - name: Set version
+        run: git describe --dirty --abbrev=7 --tags --always --first-parent > .version
+
       - name: Install dependencies
-        run: mix deps.get
+        run: make prepare
 
       - name: Compile
-        run: mix compile --warnings-as-errors
+        run: make build
 
       - name: Run unit tests
-        run: mix test --color
+        run: make test
 
       - name: Run integration tests against CouchDB
         env:
           COUCHDB_URI: http://admin:passwd@localhost:5984/
-        run: mix test --color --include integration test/integration
+        run: make integration
+
+  freebsd:
+    runs-on: ubuntu-latest
+    name: FreeBSD
+    env:
+      COUCHDB_URI: http://admin:passwd@localhost:5984/
+    steps:
+      - name: Run tests in a FreeBSD 15.1 VM
+        uses: acj/freebsd-firecracker-action@v0.12.0
+        with:
+          run-in-vm: |
+            uname -a
+            pkg install -y databases/couchdb3 lang/erlang-runtime29 lang/elixir-devel
+
+            tee -a /usr/local/etc/couchdb3/local.ini >/dev/null <<'INI'
+
+            [couchdb]
+            single_node = true
+
+            [admins]
+            admin = passwd
+            INI
+            service couchdb3 enable
+            service couchdb3 start
+
+            export PATH="/usr/local/lib/erlang29/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            export ELIXIR_ERL_OPTIONS="+fnu"
+            export COUCHDB_URI="${COUCHDB_URI:-http://admin:passwd@localhost:5984/}"
+            elixir --version
+
+            cd firecracker-freebsd
+            # the action rsyncs the checkout without .git, and .version is
+            # gitignored, so provide one for mix.exs from_hex/0
+            printf '0.0.0: 0.0.0\n' > .version
+            make prepare
+            make build
+            make test
+            make integration

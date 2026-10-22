@@ -1,5 +1,5 @@
 .POSIX:
-.PHONY: all-in-one build clean dist lint precommit prepare test test-integration update
+.PHONY: all-in-one build clean dist docs lint precommit prepare test integration update
 
 all-in-one:
 	mix do deps.get --all + deps.compile + format + credo + compile + docs
@@ -9,7 +9,7 @@ dist: clean all-in-one lint test
 clean:
 	rm -rf _build deps
 
-lint:
+lint: # appease the linters
 	# https://hexdocs.pm/dialyzex/readme.html
 	# https://hexdocs.pm/credo/Credo.html
 	# shows the debug info from dialyzer
@@ -17,16 +17,18 @@ lint:
 	env MIX_DEBUG=0 mix do format --check-formatted + dialyzer --format dialyxir + docs
 	env MIX_DEBUG=0 mix credo --strict
 
-# compile with warnings as errors, drop unused lock entries, format, test
-precommit:
+precommit: # warnings as errors, drop unused lock entries, format, test
 	mix precommit
 
-# install hex & rebar, as needed on a fresh CI box
-prepare:
+prepare: # install hex & rebar, deps, for CI
 	mix do local.hex --force --if-missing + local.rebar --force --if-missing
+	mix deps.get --all
 
-build:
-	mix do compile + docs
+build: # deps.get + compile
+	mix do deps.get + compile
+
+docs: # generate elixir docs
+	mix docs
 
 gitup:
 	@git clean -fdx
@@ -39,9 +41,8 @@ update:
 	mix do deps.unlock --all + deps.update --all
 	mix hex.docs fetch
 
-test:
-	mix test --trace --color
+test: # bypass, no real CouchDB
+	mix test --trace --color --warnings-as-errors
 
-# needs a real CouchDB, see test/integration/README.md
-test-integration:
+integration: # needs a real CouchDB, see test/integration/README.md
 	mix test --trace --color --include integration

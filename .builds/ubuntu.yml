@@ -43,10 +43,6 @@ tasks:
       couchdb couchdb/adminpass_again seen true
       SEED
       sudo DEBIAN_FRONTEND=noninteractive apt-get install -y couchdb
-  - prepare: |
-      cd sofa
-      make prepare
-      mix deps.get
   # start CouchDB early so it is up by the time the integration tests run.
   # See test/integration/README.md for the expected credentials.
   #
@@ -67,16 +63,19 @@ tasks:
         sleep 2
       done
       sudo cat /tmp/couchdb.log 2>/dev/null || true
+  - prepare: |
+      cd sofa
+      make prepare
   - compile: |
       cd sofa
-      env MIX_ENV=test mix compile --warnings-as-errors
+      make build
   - test: |
       cd sofa
       make test
   - integration: |
       cd sofa
       curl -s http://localhost:5984/
-      env COUCHDB_URI=http://admin:passwd@localhost:5984/ make test-integration
+      env COUCHDB_URI=http://admin:passwd@localhost:5984/ make integration
   # last, as it is slowest: dialyzer builds its PLT from scratch here
   - lint: |
       cd sofa
