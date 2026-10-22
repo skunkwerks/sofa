@@ -25,7 +25,7 @@ dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:sofa, "~> 0.4"}
+    {:sofa, "~> 0.5"}
   ]
 end
 ```
@@ -51,7 +51,7 @@ CouchDB API:
     single additional field to be inserted into the CouchDB URL
 - `%Sofa.Doc{}` aka `Sofa.Doc.t()` which is the main struct you'll work
     with. We've tried to keep it as close to the [CouchDB API] as possible,
-    so aside from `id`, `rev`, and the `attachments` stubs, all the
+    so aside from `id`, `rev`, and the `attachments`, all the
     JSON is contained in a `body` and Sofa keeps out of your way.
 
 ## Road Map
@@ -68,7 +68,7 @@ API transparently.
 - [x] document: `Sofa.Doc.*`
 - [x] user:     `Sofa.User.*`
 - [x] changes:  `Sofa.Changes.*`
-- [ ] attachments
+- [x] attachments: `Sofa.Attachment.*`
 - [ ] transparent Struct API
 - [ ] view:     `Sofa.View.*`
 - [ ] bearer token authorisation
@@ -156,6 +156,54 @@ iex> doc |> Sofa.Doc.to_map()
 # fetch and retrieve documents works like you'd expect
 iex> Sofa.Doc.exists?(db,"missing")
     false
+```
+
+### Attachments
+
+Attachments follow one rule: the first argument is whatever flows through
+the pipe. Small attachments are built onto the document and saved inline
+with it in a single request:
+
+```elixir
+{:ok, doc} =
+  Sofa.Doc.new(%{id: "SpaghettiWithMeatballs", body: %{"servings" => 4}})
+  |> Sofa.Doc.attach("recipe.txt", File.read!("recipe.txt"))
+  |> Sofa.Doc.attach("photo.jpg", File.read!("photo.jpg"))
+  |> Sofa.Doc.save(db)
+```
+
+`attach/4` takes the content type from the name via MIME, or as an
+option. Large files go to the standalone endpoint, streamed from disk,
+and because `save!/2` and `put!/5` hand back the document with its new
+revision, the pipeline carries on:
+
+```elixir
+doc =
+  Sofa.Doc.new(%{id: "film", body: %{"title" => "Eels"}})
+  |> Sofa.Doc.attach("poster.jpg", File.read!("poster.jpg"))
+  |> Sofa.Doc.save!(db)
+  |> Sofa.Attachment.put!(db, "video.mp4", {:file, "video.mp4"})
+  |> Sofa.Attachment.delete!(db, "draft.mov")
+```
+
+Reads take the database handle first, like the rest of Sofa. Bytes are
+checked against the digest CouchDB sends as the ETag, and attachments
+CouchDB stored gzipped come back decompressed, with `encoding` set:
+
+```elixir
+{:ok, att} = Sofa.Attachment.get(db, doc, "recipe.txt")
+att.data
+#=> "1. Cook spaghetti\n2. Cook meatballs\n..."
+
+# metadata only, a byte range, or a sink for large files
+{:ok, %Sofa.Attachment{length: 86}} = Sofa.Attachment.head(db, doc, "recipe.txt")
+{:ok, %Sofa.Attachment{data: "My hovercraft"}} = Sofa.Attachment.get(db, doc, "file.txt", range: 0..12)
+{:ok, _} = Sofa.Attachment.get(db, doc, "video.mp4", into: File.stream!("/tmp/video.mp4"))
+
+# or fetch the document with its attachments inline, and pipe on from there
+Sofa.Doc.get!(db, "SpaghettiWithMeatballs", attachments: true)
+|> Sofa.Doc.detach("photo.jpg")
+|> Sofa.Doc.save!(db)
 ```
 
 ### Following Changes

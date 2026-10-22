@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0
+
+- Use a Firecracker VM in Github Actions
+- Add `Sofa.Attachment` and attachment support in `Sofa.Doc`
+- `attachments` is now a map of name to `%Sofa.Attachment{}`,
+    round-tripping CouchDB's stubs and inline content
+- `Sofa.Doc.attach/4` and `detach/2` build documents that save their
+    attachments in one request
+- `Sofa.Doc.get/3` now takes `attachments: true`,
+    `att_encoding_info: true` and `atts_since:`
+- `Sofa.Attachment.head/4`, `get/4`, `put/5` and `delete/4` cover the
+    standalone endpoint with ranges, conditional gets, file and enumerable
+    uploads, sinks for downloads, and digest verification
+- Add `Sofa.Doc.save/2`, `save!/2` and `get!/3`, to support Elixir pipelines
+- `Sofa.raw/7` takes trailing `Req` options, and every request path is now
+    URL-encoded, so ids and attachment names with spaces or slashes work
+- Add `mime` as a dependency, for attachment content types
+
 ## 0.4.0
 
 - Switch the HTTP client from Tesla and Mint to [Req](https://hexdocs.pm/req),
