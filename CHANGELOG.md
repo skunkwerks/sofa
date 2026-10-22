@@ -9,6 +9,8 @@
     that pages by the last row
 - Add `Sofa.Mango` for `_find`, `_explain` and the `_index` endpoints, with a
     bookmark-following `stream/3`
+- Add `Sofa.Bulk` for `_bulk_docs` and `_bulk_get`, answering per document and
+    in order
 
 ## 0.5.0
 

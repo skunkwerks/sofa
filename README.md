@@ -71,6 +71,7 @@ API transparently.
 - [x] attachments: `Sofa.Attachment.*`
 - [x] views:    `Sofa.View.*`, including `_all_docs` and `_design_docs`
 - [x] mango:    `Sofa.Mango.*`
+- [x] bulk:     `Sofa.Bulk.*`
 - [ ] transparent Struct API
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
@@ -232,6 +233,17 @@ bookmark:
 {:ok, %Sofa.Mango{docs: docs}} = Sofa.Mango.find(db, %{"year" => %{"$gt" => 2010}}, sort: [%{"year" => "asc"}])
 {:ok, _} = Sofa.Mango.index(db, ["year"], name: "by_year")
 Sofa.Mango.stream(db, %{"type" => "order"}) |> Enum.count()
+```
+
+### Bulk
+
+`Sofa.Bulk` saves, deletes or fetches many documents in one request and
+answers per document, in order, so conflicts are reported where they
+happen rather than failing the batch:
+
+```elixir
+{:ok, results} = Sofa.Bulk.save(db, [fish, lamb])
+Enum.map(results, fn {:ok, doc} -> doc.rev; {:error, :conflict, doc} -> doc.id end)
 ```
 
 ### Following Changes
