@@ -256,6 +256,11 @@ defmodule Sofa do
   `error` and a `reason` key, are returned as `{:error, %Sofa.Response{}}`.
   Transport failures such as `:econnrefused` or `:timeout` are returned as
   `{:error, %Req.TransportError{}}`.
+
+  Any further `Req.request/2` options go last, for the few requests that are
+  not JSON in and out: `raw: true` keeps a body as bytes, `into:` streams it
+  to a sink, and `body:` sends an enumerable as a chunked upload. The `path`
+  is sent as given. See `Sofa.Cushion.path/1` for encoding its segments.
   """
   @spec raw(
           Sofa.t(),
@@ -263,7 +268,8 @@ defmodule Sofa do
           atom(),
           keyword() | map(),
           map() | binary(),
-          [{String.t(), String.t()}] | map()
+          [{String.t(), String.t()}] | map(),
+          keyword()
         ) ::
           {:error, any()} | {:ok, Sofa.t(), Sofa.Response.t()}
   def raw(
@@ -272,7 +278,8 @@ defmodule Sofa do
         method \\ :get,
         query \\ [],
         body \\ "",
-        headers \\ []
+        headers \\ [],
+        opts \\ []
       ) do
     request =
       Req.merge(
@@ -283,7 +290,7 @@ defmodule Sofa do
           params: query,
           headers: headers,
           receive_timeout: timeout || @default_timeout
-        ] ++ body_opts(body)
+        ] ++ body_opts(body) ++ opts
       )
 
     case Req.Request.run_request(request) do

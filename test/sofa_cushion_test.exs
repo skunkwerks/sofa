@@ -3,6 +3,8 @@ defmodule SofaCushionTest do
 
   alias Sofa.Cushion
 
+  doctest Cushion
+
   test "known headers are normalised into atom keys" do
     headers = [
       {"Server", "CouchDB/3.1.1 (Erlang OTP/22)"},
@@ -39,6 +41,22 @@ defmodule SofaCushionTest do
              etag: "1-leet",
              content_length: 2,
              cache_control: "must-revalidate"
+           }
+  end
+
+  test "attachment headers are normalised too" do
+    headers = %{
+      "content-encoding" => ["GZIP"],
+      "accept-ranges" => ["Bytes"],
+      "content-range" => ["bytes 0-12/30"],
+      "location" => ["http://localhost:5984/recipes/doc/recipe.txt"]
+    }
+
+    assert Cushion.untaint_headers(headers) == %{
+             content_encoding: "gzip",
+             accept_ranges: "bytes",
+             content_range: "bytes 0-12/30",
+             location: "http://localhost:5984/recipes/doc/recipe.txt"
            }
   end
 

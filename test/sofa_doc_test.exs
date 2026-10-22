@@ -24,8 +24,15 @@ defmodule SofaDocTest do
       conn |> put_resp_header("etag", @etag) |> empty(200)
     end)
 
-    # GET doc
+    # GET doc, including ids that need URL encoding
     Bypass.stub(bypass, "GET", "/mydb/missing", &json(&1, 404, "get_doc_404.json"))
+    # Bypass matches on the raw request path, so register the encoded form
+    for path <- ["/mydb/sp%20ace", "/mydb/org.couchdb.user:jan", "/mydb/_design/app"] do
+      Bypass.stub(bypass, "HEAD", path, fn conn ->
+        conn |> put_resp_header("etag", @etag) |> empty(200)
+      end)
+    end
+
     Bypass.stub(bypass, "GET", "/mydb/exists", &json(&1, 200, "get_doc_200.json"))
 
     # DELETE doc, which must carry the rev as an If-Match header
@@ -110,6 +117,12 @@ defmodule SofaDocTest do
   # GET doc
   test "GET /mydb/missing returns {:error, :not_found}", %{db: db} do
     assert {:error, :not_found} = Sofa.Doc.get(db, "missing")
+  end
+
+  test "document ids are URL encoded, keeping _design/ and pchar such as ':'", %{db: db} do
+    assert Sofa.Doc.exists?(db, "sp ace")
+    assert Sofa.Doc.exists?(db, "_design/app")
+    assert Sofa.Doc.exists?(db, "org.couchdb.user:jan")
   end
 
   test "GET /mydb/exists returns %Sofa.Doc{} struct", %{db: db} do

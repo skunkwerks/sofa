@@ -6,6 +6,35 @@ defmodule Sofa.Cushion do
   > uncomfortable without a Cushion.
   """
 
+  @type headers :: %{optional(binary()) => [binary()]} | [{binary(), binary()}]
+
+  @doc """
+  Joins path segments into a request path, URL-encoding each one.
+
+  Database names may contain `/` and `+`, document ids spaces and anything
+  else, and attachment names must be URL encoded per the CouchDB docs. The
+  `_design/` and `_local/` prefixes of special document ids keep their
+  slash, as CouchDB routes on them.
+
+      iex> Sofa.Cushion.path(["recipes", "Spaghetti With Meatballs", "photo 1.jpg"])
+      "recipes/Spaghetti%20With%20Meatballs/photo%201.jpg"
+
+      iex> Sofa.Cushion.path(["my/db", "_design/app"])
+      "my%2Fdb/_design/app"
+  """
+  @spec path([String.t()]) :: String.t()
+  def path(segments) when is_list(segments), do: Enum.map_join(segments, "/", &segment/1)
+
+  @spec segment(String.t()) :: String.t()
+  defp segment("_design/" <> rest), do: "_design/" <> segment(rest)
+  defp segment("_local/" <> rest), do: "_local/" <> segment(rest)
+  # RFC 3986 pchar: unreserved, sub-delims, ":" and "@" may appear in a path
+  # segment as they are, so ids such as org.couchdb.user:jan stay readable
+  defp segment(segment) when is_binary(segment), do: URI.encode(segment, &pchar?/1)
+
+  @spec pchar?(byte()) :: boolean()
+  defp pchar?(char), do: URI.char_unreserved?(char) or char in ~c":@!$&'()*+,;="
+
   @doc """
   Sanitise HTTP headers into ones we trust and format, and drop the rest.
   This is necessary because proxies, clients, HTTP1* and HTTP2 all disagree
@@ -21,8 +50,6 @@ defmodule Sofa.Cushion do
       Etag : "4-322add00c33cab838bf9d7909f18d4f5"
 
   """
-  @type headers :: %{optional(binary()) => [binary()]} | [{binary(), binary()}]
-
   @spec untaint_headers(headers()) :: map()
   def untaint_headers(headers) when is_map(headers) or is_list(headers) do
     # Req gives a map of lower-cased names to lists of values. Flatten that
@@ -64,6 +91,23 @@ defmodule Sofa.Cushion do
 
   defp untaint_headers([{"content-length", v} | t], m) do
     untaint_headers(t, Map.put(m, :content_length, String.to_integer(v)))
+  end
+
+  # attachments: compression, range support and the Location of a new one
+  defp untaint_headers([{"content-encoding", v} | t], m) do
+    untaint_headers(t, Map.put(m, :content_encoding, String.downcase(v)))
+  end
+
+  defp untaint_headers([{"content-range", v} | t], m) do
+    untaint_headers(t, Map.put(m, :content_range, v))
+  end
+
+  defp untaint_headers([{"accept-ranges", v} | t], m) do
+    untaint_headers(t, Map.put(m, :accept_ranges, String.downcase(v)))
+  end
+
+  defp untaint_headers([{"location", v} | t], m) do
+    untaint_headers(t, Map.put(m, :location, v))
   end
 
   defp untaint_headers([{"x-couchdb-body-time", v} | t], m) do

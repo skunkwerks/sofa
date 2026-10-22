@@ -24,6 +24,11 @@ defmodule SofaTest do
       end)
     end
 
+    # a non-JSON body, for the raw Req options
+    Bypass.stub(bypass, "GET", "/plain", fn conn ->
+      conn |> Plug.Conn.put_resp_content_type("text/plain") |> Plug.Conn.resp(200, "eels")
+    end)
+
     %{plain: plain.sofa, admin: admin.sofa, url: plain.url, bypass: bypass}
   end
 
@@ -131,6 +136,26 @@ defmodule SofaTest do
 
     assert {:error, %Sofa.Response{status: 401, body: ^expected}} =
              Sofa.connect!(plain) |> Sofa.active_tasks()
+  end
+
+  test "raw/7 passes Req options through, such as raw: true and into:", %{plain: plain} do
+    sofa = Sofa.connect!(plain)
+
+    assert {:ok, _, %Sofa.Response{body: "eels", headers: %{content_type: "text/plain" <> _}}} =
+             Sofa.raw(sofa, "plain", :get, [], "", [], raw: true)
+
+    # JSON stays bytes with raw: true, and is decoded without it
+    assert {:ok, _, %Sofa.Response{body: "{" <> _}} =
+             Sofa.raw(sofa, "_up", :get, [], "", [], raw: true)
+
+    assert {:ok, _, %Sofa.Response{body: %{"status" => _}}} = Sofa.raw(sofa, "_up")
+
+    collect = fn {:data, data}, {req, resp} ->
+      {:cont, {req, %{resp | body: resp.body <> data}}}
+    end
+
+    assert {:ok, _, %Sofa.Response{body: "eels"}} =
+             Sofa.raw(sofa, "plain", :get, [], "", [], into: collect)
   end
 
   test "raw/2 returns {:error, reason} on transport errors", %{plain: plain, bypass: bypass} do

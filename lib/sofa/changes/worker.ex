@@ -43,7 +43,7 @@ defmodule Sofa.Changes.Worker do
     Req.merge(
       client,
       [
-        url: "/" <> database <> "/_changes",
+        url: "/" <> Sofa.Cushion.path([database, "_changes"]),
         method: query.method,
         params: Query.params(query),
         receive_timeout: receive_timeout(query)

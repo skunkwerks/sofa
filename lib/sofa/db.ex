@@ -50,7 +50,7 @@ defmodule Sofa.DB do
   """
   @spec create(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
   def create(sofa = %Sofa{}, db) when is_binary(db) do
-    case Sofa.raw(sofa, db, :put) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db]), :put) do
       {:error, reason} ->
         {:error, reason}
 
@@ -72,7 +72,7 @@ defmodule Sofa.DB do
   """
   @spec info(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
   def info(sofa = %Sofa{}, db) when is_binary(db) do
-    case Sofa.raw(sofa, db, :get) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db]), :get) do
       {:error, reason} ->
         {:error, reason}
 
@@ -94,7 +94,7 @@ defmodule Sofa.DB do
   """
   @spec delete(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
   def delete(sofa = %Sofa{}, db) when is_binary(db) do
-    case Sofa.raw(sofa, db, :delete) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db]), :delete) do
       {:error, reason} ->
         {:error, reason}
 
@@ -117,7 +117,7 @@ defmodule Sofa.DB do
   """
   @spec open(Sofa.t(), String.t()) :: {:error, any()} | {:ok, Sofa.t(), any()}
   def open(sofa = %Sofa{}, db) when is_binary(db) do
-    case Sofa.raw(sofa, db, :head) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db]), :head) do
       {:ok, sofa, %Sofa.Response{status: 200}} ->
         {:ok, %Sofa{sofa | database: db}}
 
@@ -135,7 +135,7 @@ defmodule Sofa.DB do
   """
   @spec open!(Sofa.t(), String.t()) :: Sofa.t()
   def open!(sofa = %Sofa{}, db) when is_binary(db) do
-    case Sofa.raw(sofa, db, :head) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db]), :head) do
       {:ok, sofa, %Sofa.Response{status: 200}} ->
         %Sofa{sofa | database: db}
 

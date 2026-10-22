@@ -18,7 +18,7 @@ defmodule Sofa.Doc do
 
   """
 
-  alias Sofa.Attachment
+  alias Sofa.{Attachment, Cushion}
 
   defstruct attachments: %{},
             body: %{},
@@ -64,7 +64,7 @@ defmodule Sofa.Doc do
   """
   @spec exists(Sofa.t(), String.t()) :: {:error, any()} | {:ok, t()}
   def exists(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
-    case Sofa.raw(sofa, db <> "/" <> doc, :head) do
+    case Sofa.raw(sofa, Cushion.path([db, doc]), :head) do
       {:error, reason} ->
         {:error, reason}
 
@@ -88,7 +88,7 @@ defmodule Sofa.Doc do
   """
   @spec exists?(Sofa.t(), String.t()) :: false | true
   def exists?(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
-    case Sofa.raw(sofa, db <> "/" <> doc, :head) do
+    case Sofa.raw(sofa, Cushion.path([db, doc]), :head) do
       {:ok, _sofa,
        %Sofa.Response{
          status: 200,
@@ -109,7 +109,7 @@ defmodule Sofa.Doc do
   """
   @spec get(Sofa.t(), String.t()) :: {:error, any()} | t()
   def get(sofa = %Sofa{database: db}, doc) when is_binary(doc) do
-    case Sofa.raw(sofa, db <> "/" <> doc, :get) do
+    case Sofa.raw(sofa, Cushion.path([db, doc]), :get) do
       {:ok, _sofa,
        %Sofa.Response{
          status: 404
@@ -148,7 +148,7 @@ defmodule Sofa.Doc do
   """
   @spec put(Sofa.t(), t()) :: {:ok, t()} | {:error, any()}
   def put(sofa = %Sofa{database: db}, doc = %Sofa.Doc{id: id, rev: _rev}) do
-    case Sofa.raw(sofa, db <> "/" <> id, :put, [], to_map(doc)) do
+    case Sofa.raw(sofa, Cushion.path([db, id]), :put, [], to_map(doc)) do
       {:ok, _sofa,
        %Sofa.Response{
          status: 201,
@@ -409,7 +409,7 @@ defmodule Sofa.Doc do
   @spec delete(Sofa.t(), t()) :: :ok | {:error, any()}
   def delete(sofa = %Sofa{database: db}, %Sofa.Doc{id: id, rev: rev})
       when is_binary(db) and is_binary(rev) do
-    case Sofa.raw(sofa, db <> "/" <> id, :delete, [], "", [{"If-Match", rev}]) do
+    case Sofa.raw(sofa, Cushion.path([db, id]), :delete, [], "", [{"If-Match", rev}]) do
       {:error, %Sofa.Response{status: 409}} ->
         {:error, :conflict}
 
