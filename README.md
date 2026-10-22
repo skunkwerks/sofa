@@ -25,7 +25,7 @@ dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:sofa, "~> 0.5"}
+    {:sofa, "~> 0.6"}
   ]
 end
 ```
@@ -72,6 +72,7 @@ API transparently.
 - [x] views:    `Sofa.View.*`, including `_all_docs` and `_design_docs`
 - [x] mango:    `Sofa.Mango.*`
 - [x] bulk:     `Sofa.Bulk.*`
+- [x] design:   `Sofa.Design.*`
 - [ ] transparent Struct API
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
@@ -244,6 +245,29 @@ happen rather than failing the batch:
 ```elixir
 {:ok, results} = Sofa.Bulk.save(db, [fish, lamb])
 Enum.map(results, fn {:ok, doc} -> doc.rev; {:error, :conflict, doc} -> doc.id end)
+```
+
+### Design Documents
+
+Design documents are built as pipelines and saved like any document,
+then queried with `Sofa.View` or used as `Sofa.Changes` filters:
+
+The `~JS` sigil holds the JavaScript as written, with no interpolation
+or escapes:
+
+```elixir
+import Sofa.Design, only: [sigil_JS: 2]
+
+by_title = ~JS"""
+function(doc) {
+  if (doc.title) emit(doc.title, null);
+}
+"""
+
+Sofa.Design.new("recipes")
+|> Sofa.Design.view("by_title", by_title)
+|> Sofa.Design.filter("important", ~JS"function(doc, req) { return doc.important === true; }")
+|> Sofa.Doc.save(db)
 ```
 
 ### Following Changes
