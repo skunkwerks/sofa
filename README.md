@@ -70,6 +70,7 @@ API transparently.
 - [x] changes:  `Sofa.Changes.*`
 - [x] attachments: `Sofa.Attachment.*`
 - [x] views:    `Sofa.View.*`, including `_all_docs` and `_design_docs`
+- [x] mango:    `Sofa.Mango.*`
 - [ ] transparent Struct API
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
@@ -220,6 +221,17 @@ any size:
 Sofa.View.stream(db, "recipes", "by_title", limit: 100)
 |> Stream.map(& &1.key)
 |> Enum.take(1000)
+```
+
+### Mango
+
+Mango queries take a selector plus the documented options, and page by
+bookmark:
+
+```elixir
+{:ok, %Sofa.Mango{docs: docs}} = Sofa.Mango.find(db, %{"year" => %{"$gt" => 2010}}, sort: [%{"year" => "asc"}])
+{:ok, _} = Sofa.Mango.index(db, ["year"], name: "by_year")
+Sofa.Mango.stream(db, %{"type" => "order"}) |> Enum.count()
 ```
 
 ### Following Changes

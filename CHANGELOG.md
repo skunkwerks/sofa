@@ -7,6 +7,8 @@
 - Add `Sofa.View` for views, `_all_docs` and `_design_docs`, with JSON key
     encoding, `keys` as a `POST`, the `/queries` endpoint and a lazy `stream/4`
     that pages by the last row
+- Add `Sofa.Mango` for `_find`, `_explain` and the `_index` endpoints, with a
+    bookmark-following `stream/3`
 
 ## 0.5.0
 
