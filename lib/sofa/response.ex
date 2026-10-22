@@ -27,7 +27,7 @@ defmodule Sofa.Response do
   """
 
   @type t :: %__MODULE__{
-          body: map() | binary() | nil,
+          body: map() | list() | binary() | nil,
           status: integer() | nil,
           method: atom(),
           query: list() | binary(),
