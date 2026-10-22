@@ -47,6 +47,15 @@ defmodule SofaTest do
            }
   end
 
+  test "auth_info/1 splits userinfo into credentials, or gives none" do
+    assert Sofa.auth_info("admin:password") == %{username: "admin", password: "password"}
+    assert Sofa.auth_info("blank:") == %{username: "blank", password: ""}
+    assert Sofa.auth_info("with:colon:inside") == %{username: "with", password: "colon:inside"}
+    assert Sofa.auth_info("garbage") == %{}
+    assert Sofa.auth_info(":nouser") == %{}
+    assert Sofa.auth_info(nil) == %{}
+  end
+
   test "client/2 omits basic auth when no credentials are supplied", %{plain: plain} do
     refute Map.has_key?(plain.client.options, :auth)
     assert plain.client.options[:retry] == false
