@@ -13,8 +13,11 @@ defmodule SofaCouchDBTest do
 
   setup_all do
     admin = Sofa.init(@couchdb_uri) |> Sofa.client() |> Sofa.connect!()
-    # the couchdb:3 image doesn't create system DBs in single node mode
+    # the couchdb:3 image doesn't create system DBs in single node mode.
+    # The auth cache listens on _global_changes for _users updates, so make
+    # sure both exist before creating any users in the tests below.
     ensure_db(admin, "_users")
+    ensure_db(admin, "_global_changes")
     db = "sofa_ci_#{System.unique_integer([:positive])}"
     {:ok, admin, _resp} = Sofa.DB.create(admin, db)
     on_exit(fn -> {:ok, _, _} = Sofa.DB.delete(admin, db) end)
