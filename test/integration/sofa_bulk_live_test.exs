@@ -28,7 +28,7 @@ defmodule SofaBulkLiveTest do
     saved = Enum.map(results, fn {:ok, doc} -> doc end)
 
     # one updated with its rev, one with a stale rev, one new
-    [fish, lamb, _beef] = saved
+    [fish = %Doc{}, lamb = %Doc{}, _beef] = saved
     stale = %Doc{lamb | rev: "1-0786321986194c92dd3b57dfbfc741ce"}
 
     assert {:ok,
