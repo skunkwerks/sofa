@@ -48,7 +48,7 @@ defmodule SofaReplicationLiveTest do
   end
 
   test "a continuous replication shows in the scheduler until cancelled", %{
-    admin: admin,
+    admin: %Sofa{} = admin,
     source: source,
     target: target
   } do

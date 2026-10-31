@@ -97,7 +97,7 @@ defmodule SofaReplicationTest do
   end
 
   test "replicate/4 posts the endpoints with the options and returns the history", %{
-    server: server
+    server: %Sofa{} = server
   } do
     db_b = %Sofa{server | database: "db_b"}
 
