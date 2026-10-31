@@ -19,7 +19,7 @@ defmodule SofaChangesLiveTest do
   @couchdb_uri System.get_env("COUCHDB_URI", "http://admin:passwd@localhost:5984/")
 
   setup do
-    admin = Sofa.init(@couchdb_uri) |> Sofa.client() |> Sofa.connect!()
+    admin = Sofa.init(@couchdb_uri) |> Sofa.client() |> Sofa.IntegrationHelper.connect!()
     name = "sofa_changes_#{System.unique_integer([:positive])}_#{:rand.uniform(1_000_000)}"
     {:ok, db, _resp} = Sofa.DB.create(admin, name)
     on_exit(fn -> {:ok, _, _} = Sofa.DB.delete(admin, name) end)

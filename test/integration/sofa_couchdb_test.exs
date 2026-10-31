@@ -12,7 +12,7 @@ defmodule SofaCouchDBTest do
   @couchdb_uri System.get_env("COUCHDB_URI", "http://admin:passwd@localhost:5984/")
 
   setup_all do
-    admin = Sofa.init(@couchdb_uri) |> Sofa.client() |> Sofa.connect!()
+    admin = Sofa.init(@couchdb_uri) |> Sofa.client() |> Sofa.IntegrationHelper.connect!()
     # the couchdb:3 image doesn't create system DBs in single node mode.
     # The auth cache listens on _global_changes for _users updates, so make
     # sure both exist before creating any users in the tests below.
