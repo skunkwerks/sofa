@@ -25,7 +25,7 @@ dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:sofa, "~> 0.6"}
+    {:sofa, "~> 0.7"}
   ]
 end
 ```
@@ -75,6 +75,7 @@ API transparently.
 - [x] design:   `Sofa.Design.*`
 - [x] security: `Sofa.Security.*`
 - [x] sessions: `Sofa.Session.*`
+- [x] replication: `Sofa.Replication.*`
 - [ ] transparent Struct API
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
@@ -289,6 +290,16 @@ Log in once and send a cookie instead of credentials on every request:
 ```elixir
 {:ok, sofa} = Sofa.init("http://localhost:5984/") |> Sofa.client() |> Sofa.Session.login("jan", "apple")
 {:ok, %{name: "jan", authenticated: "cookie"}} = Sofa.Session.info(sofa)
+```
+
+### Replication
+
+Replicate between databases, one-off or continuous, and watch the
+scheduler. A handle with its database set works as an endpoint:
+
+```elixir
+{:ok, %{"history" => _}} = Sofa.Replication.replicate(server, db_a, db_b, create_target: true)
+{:ok, jobs} = Sofa.Replication.jobs(server)
 ```
 
 ### Following Changes
