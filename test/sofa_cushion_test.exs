@@ -60,6 +60,16 @@ defmodule SofaCushionTest do
            }
   end
 
+  test "every set-cookie header is kept, in order" do
+    assert Cushion.untaint_headers([{"set-cookie", "a=1; Path=/"}, {"set-cookie", "b=2"}]) == %{
+             set_cookie: ["a=1; Path=/", "b=2"]
+           }
+
+    assert Cushion.untaint_headers(%{"set-cookie" => ["a=1", "b=2"]}) == %{
+             set_cookie: ["a=1", "b=2"]
+           }
+  end
+
   test "already lower-cased headers are accepted as-is" do
     assert Cushion.untaint_headers([{"etag", ~s("1-leet")}, {"content-length", "2"}]) ==
              %{etag: "1-leet", content_length: 2}

@@ -110,6 +110,11 @@ defmodule Sofa.Cushion do
     untaint_headers(t, Map.put(m, :location, v))
   end
 
+  # a response may set several cookies. Keep them all, in order
+  defp untaint_headers([{"set-cookie", v} | t], m) do
+    untaint_headers(t, Map.update(m, :set_cookie, [v], &(&1 ++ [v])))
+  end
+
   defp untaint_headers([{"x-couchdb-body-time", v} | t], m) do
     untaint_headers(t, Map.put(m, :couch_body_time, String.to_integer(v)))
   end

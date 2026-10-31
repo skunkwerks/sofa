@@ -115,6 +115,26 @@ defmodule SofaCouchDBTest do
     assert {:ok, %Sofa{}} = Sofa.DB.open(admin, name)
   end
 
+  test "Session.login/3 gives a cookie that authenticates like the credentials did", %{
+    admin: admin
+  } do
+    assert {:ok, %{name: "admin", authenticated: "default"}} = Sofa.Session.info(admin)
+    assert {:ok, %{name: nil, roles: []}} = Sofa.Session.info(anonymous())
+
+    uri = URI.parse(@couchdb_uri)
+    [name, password] = String.split(uri.userinfo, ":", parts: 2)
+    assert {:ok, session} = Sofa.Session.login(anonymous(), name, password)
+
+    assert {:ok, %{name: ^name, roles: ["_admin"], authenticated: "cookie"}} =
+             Sofa.Session.info(session)
+
+    assert {:ok, _dbs} = Sofa.all_dbs(session)
+
+    assert {:ok, out} = Sofa.Session.logout(session)
+    assert {:ok, %{name: nil}} = Sofa.Session.info(out)
+    assert {:error, %Sofa.Response{status: 401}} = Sofa.all_dbs(out)
+  end
+
   test "DB.create/2 refuses an existing database", %{admin: admin, db: db} do
     assert {:error, %Sofa.Response{status: 412}} = Sofa.DB.create(admin, db)
   end
