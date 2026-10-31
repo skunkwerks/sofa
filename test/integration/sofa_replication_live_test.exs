@@ -42,6 +42,9 @@ defmodule SofaReplicationLiveTest do
 
     assert {:ok, %Sofa.View{total_rows: 3}} = Sofa.View.all_docs(Sofa.DB.open!(admin, target))
     assert %Doc{id: "two", body: %{"n" => 1}} = Doc.get!(Sofa.DB.open!(admin, target), "two")
+
+    assert {:error, :not_found} =
+             Replication.replicate(admin, %Sofa{admin | database: "sofa_repl_nowhere"}, source)
   end
 
   test "a continuous replication shows in the scheduler until cancelled", %{

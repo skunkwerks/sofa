@@ -43,6 +43,10 @@ defmodule Sofa.Replication do
       when status in [200, 202] ->
         {:ok, body}
 
+      # a missing source or target is a 500 with this error in practice, not the documented 404
+      {:error, %Response{body: %{"error" => "db_not_found"}}} ->
+        {:error, :not_found}
+
       other ->
         error(other)
     end

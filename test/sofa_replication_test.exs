@@ -24,7 +24,12 @@ defmodule SofaReplicationTest do
 
       cond do
         body["source"] == "http://nowhere/db" ->
-          json(conn, 404, "get_db_404.json")
+          # what CouchDB 3.5 really answers for a missing source: a 500, not the documented 404
+          resp(
+            conn,
+            500,
+            ~s({"error": "db_not_found", "reason": "could not open http://nowhere/db/"})
+          )
 
         body["cancel"] == true ->
           resp(
