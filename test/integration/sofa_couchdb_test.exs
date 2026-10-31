@@ -90,6 +90,12 @@ defmodule SofaCouchDBTest do
     db = Sofa.DB.open!(admin, name)
     anonymous = %Sofa{anonymous() | database: name}
 
+    # CouchDB 3 creates databases admin-only, via the _admin role on both grants
+    assert {:ok, %Sofa.Security{admins: %{roles: ["_admin"]}, members: %{roles: ["_admin"]}}} =
+             Sofa.DB.security(db)
+
+    assert {:error, %Sofa.Response{status: 401}} = Sofa.DB.open(anonymous, name)
+
     # an empty object opens the database to everyone
     assert :ok = Sofa.DB.set_security(db, Sofa.Security.new())
     assert {:ok, security} = Sofa.DB.security(db)

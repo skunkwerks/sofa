@@ -8,7 +8,9 @@ defmodule Sofa.Security do
 
   See https://docs.couchdb.org/en/stable/api/database/security.html. An
   empty object means every server admin is an admin and everyone else,
-  including anonymous users, is a member. Users and roles are those of
+  including anonymous users, is a member. CouchDB 3 creates databases
+  admin-only instead, with the `_admin` role on both grants, unless its
+  `default_security` setting says otherwise. Users and roles are those of
   `Sofa.User` documents in `_users`.
 
   Read and write it with `Sofa.DB.security/1` and `Sofa.DB.set_security/2`.
