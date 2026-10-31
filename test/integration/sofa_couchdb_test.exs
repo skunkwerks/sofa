@@ -85,6 +85,30 @@ defmodule SofaCouchDBTest do
     assert_raise Sofa.Error, fn -> Sofa.DB.open!(admin, "sofa_ci_missing") end
   end
 
+  test "DB.security/1 and set_security/2 control who may read the database",
+       %{admin: admin, db: name} do
+    db = Sofa.DB.open!(admin, name)
+    anonymous = %Sofa{anonymous() | database: name}
+
+    # an empty object opens the database to everyone
+    assert :ok = Sofa.DB.set_security(db, Sofa.Security.new())
+    assert {:ok, security} = Sofa.DB.security(db)
+    assert Sofa.Security.empty?(security)
+    assert {:ok, %Sofa{}} = Sofa.DB.open(anonymous, name)
+
+    # a member role closes it again, and only admins may read the object
+    assert :ok =
+             Sofa.DB.set_security(
+               db,
+               Sofa.Security.new() |> Sofa.Security.member(role: "sofa_ci")
+             )
+
+    assert {:ok, %Sofa.Security{members: %{roles: ["sofa_ci"]}}} = Sofa.DB.security(db)
+    assert {:error, %Sofa.Response{status: 401}} = Sofa.DB.open(anonymous, name)
+    assert {:error, :unauthorized} = Sofa.DB.security(anonymous)
+    assert {:ok, %Sofa{}} = Sofa.DB.open(admin, name)
+  end
+
   test "DB.create/2 refuses an existing database", %{admin: admin, db: db} do
     assert {:error, %Sofa.Response{status: 412}} = Sofa.DB.create(admin, db)
   end

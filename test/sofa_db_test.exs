@@ -6,6 +6,7 @@ defmodule SofaDbTest do
   setup do
     %{bypass: bypass} = plain = start()
     admin = start(admin())
+    test = self()
 
     for b <- [bypass, admin.bypass] do
       # required for Sofa.connect!/1 in all tests
@@ -29,6 +30,30 @@ defmodule SofaDbTest do
       end)
 
       Bypass.stub(b, "DELETE", "/trash", &json(&1, 202, "delete_db_202.json"))
+
+      # the documented security object, writable by admins only
+      Bypass.stub(b, "GET", "/exists/_security", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          ~s({"admins": {"names": ["superuser"], "roles": ["admins"]}, "members": {"names": ["user1", "user2"], "roles": ["developers"]}})
+        )
+      end)
+
+      Bypass.stub(b, "GET", "/missing/_security", &json(&1, 404, "get_db_404.json"))
+
+      Bypass.stub(b, "PUT", "/exists/_security", fn conn ->
+        {conn, body} = json_body(conn)
+        send(test, {:security, body})
+
+        if basic_auth?(conn, admin()),
+          do:
+            conn
+            |> Plug.Conn.put_resp_content_type("application/json")
+            |> Plug.Conn.resp(200, ~s({"ok": true})),
+          else: json(conn, 401, "put_doc_401.json")
+      end)
     end
 
     %{plain: plain.sofa, admin: admin.sofa}
@@ -122,6 +147,39 @@ defmodule SofaDbTest do
               status: 404,
               body: ""
             }} = response
+  end
+
+  test "security/1 reads the documented security object", %{plain: plain} do
+    db = Sofa.connect!(plain) |> Sofa.DB.open!("exists")
+
+    assert {:ok, security} = Sofa.DB.security(db)
+
+    assert %Sofa.Security{
+             admins: %{names: ["superuser"], roles: ["admins"]},
+             members: %{names: ["user1", "user2"], roles: ["developers"]}
+           } = security
+
+    refute Sofa.Security.empty?(security)
+
+    assert {:error, :not_found} = Sofa.DB.security(%Sofa{db | database: "missing"})
+  end
+
+  test "set_security/2 PUTs the object, for admins only", %{plain: plain, admin: admin} do
+    security =
+      Sofa.Security.new()
+      |> Sofa.Security.admin("superuser")
+      |> Sofa.Security.member(role: "developers")
+
+    assert :ok = Sofa.connect!(admin) |> Sofa.DB.open!("exists") |> Sofa.DB.set_security(security)
+
+    assert_receive {:security,
+                    %{
+                      "admins" => %{"names" => ["superuser"], "roles" => []},
+                      "members" => %{"names" => [], "roles" => ["developers"]}
+                    }}
+
+    assert {:error, :unauthorized} =
+             Sofa.connect!(plain) |> Sofa.DB.open!("exists") |> Sofa.DB.set_security(security)
   end
 
   test "open/2 returns %Sofa{database: dbname}", %{plain: plain} do

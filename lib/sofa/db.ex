@@ -112,6 +112,48 @@ defmodule Sofa.DB do
   end
 
   @doc """
+  The security object of the opened database, see `Sofa.Security`.
+  """
+  @spec security(Sofa.t()) :: {:ok, Sofa.Security.t()} | {:error, Sofa.Response.error() | any()}
+  def security(sofa = %Sofa{database: db}) when is_binary(db) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db, "_security"]), :get) do
+      {:ok, _sofa, %Sofa.Response{status: 200, body: body}} when is_map(body) ->
+        {:ok, Sofa.Security.from_map(body)}
+
+      other ->
+        security_error(other)
+    end
+  end
+
+  @doc """
+  Replaces the security object of the opened database. Server admin only.
+
+      Sofa.Security.new() |> Sofa.Security.member(role: "users") |> then(&Sofa.DB.set_security(db, &1))
+  """
+  @spec set_security(Sofa.t(), Sofa.Security.t()) :: :ok | {:error, Sofa.Response.error() | any()}
+  def set_security(sofa = %Sofa{database: db}, security = %Sofa.Security{}) when is_binary(db) do
+    case Sofa.raw(
+           sofa,
+           Sofa.Cushion.path([db, "_security"]),
+           :put,
+           [],
+           Sofa.Security.to_map(security)
+         ) do
+      {:ok, _sofa, %Sofa.Response{status: 200, body: %{"ok" => true}}} -> :ok
+      other -> security_error(other)
+    end
+  end
+
+  @spec security_error({:ok, Sofa.t(), Sofa.Response.t()} | {:error, term()}) :: {:error, any()}
+  defp security_error({:ok, _sofa, response = %Sofa.Response{}}),
+    do: {:error, Sofa.Response.error(response)}
+
+  defp security_error({:error, response = %Sofa.Response{}}),
+    do: {:error, Sofa.Response.error(response)}
+
+  defp security_error({:error, reason}), do: {:error, reason}
+
+  @doc """
   Open DB. Checks if supplied credentials have access to the DB, and returns
   updated `%Sofa{}` struct with DB. Ideal for subsequent use to read/write Docs.
   """
