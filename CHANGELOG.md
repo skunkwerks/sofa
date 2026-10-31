@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `Sofa.Security` with `Sofa.DB.security/1` and `set_security/2`
+
 ## 0.6.0
 
 - Add `Sofa.View` for views, `_all_docs` and `_design_docs`, with JSON key

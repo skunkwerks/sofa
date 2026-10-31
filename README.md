@@ -73,6 +73,7 @@ API transparently.
 - [x] mango:    `Sofa.Mango.*`
 - [x] bulk:     `Sofa.Bulk.*`
 - [x] design:   `Sofa.Design.*`
+- [x] security: `Sofa.Security.*`
 - [ ] transparent Struct API
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
@@ -268,6 +269,16 @@ Sofa.Design.new("recipes")
 |> Sofa.Design.view("by_title", by_title)
 |> Sofa.Design.filter("important", ~JS"function(doc, req) { return doc.important === true; }")
 |> Sofa.Doc.save(db)
+```
+
+### Security
+
+A database's security object is a `%Sofa.Security{}`, built the same way
+and written with `Sofa.DB.set_security/2`. CouchDB 3 creates databases
+admin-only. An empty object opens one up for access:
+
+```elixir
+Sofa.Security.new() |> Sofa.Security.member(role: "users") |> then(&Sofa.DB.set_security(db, &1))
 ```
 
 ### Following Changes
