@@ -74,6 +74,7 @@ API transparently.
 - [x] bulk:     `Sofa.Bulk.*`
 - [x] design:   `Sofa.Design.*`
 - [x] security: `Sofa.Security.*`
+- [x] sessions: `Sofa.Session.*`
 - [ ] transparent Struct API
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
@@ -279,6 +280,15 @@ admin-only. An empty object opens one up for access:
 
 ```elixir
 Sofa.Security.new() |> Sofa.Security.member(role: "users") |> then(&Sofa.DB.set_security(db, &1))
+```
+
+### Sessions
+
+Log in once and send a cookie instead of credentials on every request:
+
+```elixir
+{:ok, sofa} = Sofa.init("http://localhost:5984/") |> Sofa.client() |> Sofa.Session.login("jan", "apple")
+{:ok, %{name: "jan", authenticated: "cookie"}} = Sofa.Session.info(sofa)
 ```
 
 ### Following Changes

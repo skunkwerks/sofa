@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Add `Sofa.Security` with `Sofa.DB.security/1` and `set_security/2`
+- Add `Sofa.Session` for cookie login, `info/1` and logout, which also sidesteps
+    CouchDB 3's account lockout on repeated bad credentials
 
 ## 0.6.0
 
