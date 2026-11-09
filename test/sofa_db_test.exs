@@ -31,6 +31,66 @@ defmodule SofaDbTest do
 
       Bypass.stub(b, "DELETE", "/trash", &json(&1, 202, "delete_db_202.json"))
 
+      # maintenance, admin only, with CouchDB's JSON content type demand
+      for path <- ["/exists/_compact", "/exists/_compact/recipes", "/exists/_view_cleanup"] do
+        Bypass.stub(b, "POST", path, fn conn ->
+          send(
+            test,
+            {:maintenance, conn.request_path, Plug.Conn.get_req_header(conn, "content-type")}
+          )
+
+          if basic_auth?(conn, admin()),
+            do:
+              conn
+              |> Plug.Conn.put_resp_content_type("application/json")
+              |> Plug.Conn.resp(202, ~s({"ok": true})),
+            else: json(conn, 401, "put_doc_401.json")
+        end)
+      end
+
+      Bypass.stub(b, "GET", "/exists/_revs_limit", fn conn ->
+        conn |> Plug.Conn.put_resp_content_type("application/json") |> Plug.Conn.resp(200, "1000")
+      end)
+
+      Bypass.stub(b, "PUT", "/exists/_revs_limit", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(test, {:revs_limit, body})
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, ~s({"ok": true}))
+      end)
+
+      Bypass.stub(b, "POST", "/exists/_purge", fn conn ->
+        {conn, body} = json_body(conn)
+        send(test, {:purge, body})
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          201,
+          ~s({"purge_seq": null, "purged": {"c6114c65e295552ab1019e2b046b10e": ["3-c50a32451890a3f1c3e423334cc92de4"]}})
+        )
+      end)
+
+      Bypass.stub(b, "POST", "/exists/_revs_diff", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          ~s({"190f721ca3411be7aa9477db5f948bbb": {"missing": ["3-bb72a7682290f94a985f7afac8b27137", "5-067a00dff5e02add41819138abb3284d"], "possible_ancestors": ["4-10265e5a26d807a3cfa459cf1a82ef2e"]}})
+        )
+      end)
+
+      Bypass.stub(b, "POST", "/exists/_missing_revs", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          ~s({"missing_revs": {"c6114c65e295552ab1019e2b046b10e": ["3-b06fcd1c1c9e0ec7c480ee8aa467bf3b"]}})
+        )
+      end)
+
       # the documented security object, writable by admins only
       Bypass.stub(b, "GET", "/exists/_security", fn conn ->
         conn
@@ -180,6 +240,52 @@ defmodule SofaDbTest do
 
     assert {:error, :unauthorized} =
              Sofa.connect!(plain) |> Sofa.DB.open!("exists") |> Sofa.DB.set_security(security)
+  end
+
+  test "compact/2 and view_cleanup/1 are accepted for admins, with a JSON content type", %{
+    plain: plain,
+    admin: admin
+  } do
+    db = Sofa.connect!(admin) |> Sofa.DB.open!("exists")
+    assert :ok = Sofa.DB.compact(db)
+    assert_receive {:maintenance, "/exists/_compact", ["application/json"]}
+    assert :ok = Sofa.DB.compact(db, "recipes")
+    assert_receive {:maintenance, "/exists/_compact/recipes", _}
+    assert :ok = Sofa.DB.view_cleanup(db)
+    assert_receive {:maintenance, "/exists/_view_cleanup", _}
+
+    assert {:error, :unauthorized} =
+             Sofa.connect!(plain) |> Sofa.DB.open!("exists") |> Sofa.DB.compact()
+  end
+
+  test "revision limits, purge, revs_diff and missing_revs follow the documented shapes", %{
+    admin: admin
+  } do
+    db = Sofa.connect!(admin) |> Sofa.DB.open!("exists")
+
+    assert {:ok, 1000} = Sofa.DB.revs_limit(db)
+    assert :ok = Sofa.DB.set_revs_limit(db, 500)
+    assert_receive {:revs_limit, "500"}
+
+    revs = %{"c6114c65e295552ab1019e2b046b10e" => ["3-c50a32451890a3f1c3e423334cc92de4"]}
+    assert {:ok, %{"purged" => ^revs}} = Sofa.DB.purge(db, revs)
+    assert_receive {:purge, ^revs}
+
+    assert {:ok,
+            %{
+              "190f721ca3411be7aa9477db5f948bbb" => %{
+                "missing" => [_, _],
+                "possible_ancestors" => [_]
+              }
+            }} =
+             Sofa.DB.revs_diff(db, %{
+               "190f721ca3411be7aa9477db5f948bbb" => ["3-bb72a7682290f94a985f7afac8b27137"]
+             })
+
+    assert {:ok, %{"c6114c65e295552ab1019e2b046b10e" => ["3-b06fcd1c1c9e0ec7c480ee8aa467bf3b"]}} =
+             Sofa.DB.missing_revs(db, %{
+               "c6114c65e295552ab1019e2b046b10e" => ["3-b06fcd1c1c9e0ec7c480ee8aa467bf3b"]
+             })
   end
 
   test "open/2 returns %Sofa{database: dbname}", %{plain: plain} do

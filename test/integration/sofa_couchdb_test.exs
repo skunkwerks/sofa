@@ -166,6 +166,34 @@ defmodule SofaCouchDBTest do
     assert {:error, :unauthorized} = Sofa.Config.all(anonymous())
   end
 
+  test "database maintenance: compaction, cleanup, revision limits, revs_diff and purge", %{
+    admin: admin,
+    db: name
+  } do
+    db = Sofa.DB.open!(admin, name)
+    assert :ok = Sofa.DB.compact(db)
+    assert :ok = Sofa.DB.view_cleanup(db)
+
+    assert {:ok, 1000} = Sofa.DB.revs_limit(db)
+    assert :ok = Sofa.DB.set_revs_limit(db, 500)
+    assert {:ok, 500} = Sofa.DB.revs_limit(db)
+
+    doc = Sofa.Doc.new(%{id: "keep", body: %{"n" => 1}}) |> Sofa.Doc.save!(db)
+    unknown = "2-0000000000000000000000000000dead"
+
+    assert {:ok, %{"keep" => %{"missing" => [^unknown]} = diff}} =
+             Sofa.DB.revs_diff(db, %{"keep" => [doc.rev, unknown]})
+
+    assert diff["possible_ancestors"] == [doc.rev]
+
+    assert {:ok, %{"keep" => [^unknown]}} =
+             Sofa.DB.missing_revs(db, %{"keep" => [doc.rev, unknown]})
+
+    assert {:ok, %{"purged" => %{"keep" => [rev]}}} = Sofa.DB.purge(db, %{"keep" => [doc.rev]})
+    assert rev == doc.rev
+    assert {:error, :not_found} = Sofa.Doc.get(db, "keep")
+  end
+
   test "DB.create/2 refuses an existing database", %{admin: admin, db: db} do
     assert {:error, %Sofa.Response{status: 412}} = Sofa.DB.create(admin, db)
   end

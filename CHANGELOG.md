@@ -2,6 +2,8 @@
 
 ## 0.8.0
 
+- Add `Sofa.DB.compact/2`, `view_cleanup/1`, `revs_limit/1`, `set_revs_limit/2`,
+    `purge/2`, `revs_diff/2` and `missing_revs/2`
 - Add `Sofa.Config` for a node's `_config`
 - Add `Sofa.uuids/2`, `dbs_info/2`, `membership/1` and `db_updates/2`
 - Fix transient unexpected null state in replication

@@ -306,8 +306,10 @@ scheduler. A handle with its database set works as an endpoint:
 ### Administration
 
 The rest of the server API is a function each: `Sofa.uuids/2`,
-`Sofa.dbs_info/2`, `Sofa.membership/1` and `Sofa.db_updates/2`, and the
-node configuration under `Sofa.Config`.
+`Sofa.dbs_info/2`, `Sofa.membership/1` and `Sofa.db_updates/2`, the node
+configuration under `Sofa.Config`, and database maintenance on `Sofa.DB`
+with `compact/2`, `view_cleanup/1`, `revs_limit/1`, `purge/2` and
+`revs_diff/2`.
 
 ### Following Changes
 

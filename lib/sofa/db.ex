@@ -144,6 +144,112 @@ defmodule Sofa.DB do
     end
   end
 
+  @doc """
+  Starts compaction of the opened database, or with a design document
+  name of its view indexes. CouchDB accepts the request and compacts in
+  the background. `info/2` reports `compact_running`. Admin only.
+  """
+  @spec compact(Sofa.t(), String.t() | nil) :: :ok | {:error, Sofa.Response.error() | any()}
+  def compact(sofa = %Sofa{database: db}, ddoc \\ nil) when is_binary(db) do
+    path =
+      if ddoc,
+        do: Sofa.Cushion.path([db, "_compact", ddoc]),
+        else: Sofa.Cushion.path([db, "_compact"])
+
+    accepted(Sofa.raw(sofa, path, :post, [], "", json_header()))
+  end
+
+  @doc "Removes view index files no design document refers to any more. Admin only."
+  @spec view_cleanup(Sofa.t()) :: :ok | {:error, Sofa.Response.error() | any()}
+  def view_cleanup(sofa = %Sofa{database: db}) when is_binary(db) do
+    accepted(
+      Sofa.raw(sofa, Sofa.Cushion.path([db, "_view_cleanup"]), :post, [], "", json_header())
+    )
+  end
+
+  @doc "How many revisions of a document the database keeps track of, 1000 by default."
+  @spec revs_limit(Sofa.t()) :: {:ok, pos_integer()} | {:error, Sofa.Response.error() | any()}
+  def revs_limit(sofa = %Sofa{database: db}) when is_binary(db) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db, "_revs_limit"]), :get) do
+      {:ok, _sofa, %Sofa.Response{status: 200, body: limit}} when is_integer(limit) ->
+        {:ok, limit}
+
+      other ->
+        security_error(other)
+    end
+  end
+
+  @doc "Sets the revision limit. Admin only."
+  @spec set_revs_limit(Sofa.t(), pos_integer()) :: :ok | {:error, Sofa.Response.error() | any()}
+  def set_revs_limit(sofa = %Sofa{database: db}, limit)
+      when is_binary(db) and is_integer(limit) and limit > 0 do
+    case Sofa.raw(
+           sofa,
+           Sofa.Cushion.path([db, "_revs_limit"]),
+           :put,
+           [],
+           Integer.to_string(limit),
+           json_header()
+         ) do
+      {:ok, _sofa, %Sofa.Response{status: 200, body: %{"ok" => true}}} -> :ok
+      other -> security_error(other)
+    end
+  end
+
+  @doc """
+  Purges revisions for good, as opposed to deleting them: a map of
+  document ids to lists of revisions. Returns the purge sequence and what
+  was purged, as documented. Admin only, and best used with care.
+  """
+  @spec purge(Sofa.t(), %{optional(String.t()) => [String.t()]}) ::
+          {:ok, map()} | {:error, Sofa.Response.error() | any()}
+  def purge(sofa = %Sofa{database: db}, revisions) when is_binary(db) and is_map(revisions) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db, "_purge"]), :post, [], revisions) do
+      {:ok, _sofa, %Sofa.Response{status: status, body: body = %{"purged" => _}}}
+      when status in [201, 202] ->
+        {:ok, body}
+
+      other ->
+        security_error(other)
+    end
+  end
+
+  @doc """
+  Which of the given revisions the database does not have, for a map of
+  document ids to revision lists, as a map of ids to `"missing"` lists
+  and `"possible_ancestors"`. What replicators ask before sending.
+  """
+  @spec revs_diff(Sofa.t(), %{optional(String.t()) => [String.t()]}) ::
+          {:ok, map()} | {:error, Sofa.Response.error() | any()}
+  def revs_diff(sofa = %Sofa{database: db}, revisions) when is_binary(db) and is_map(revisions) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db, "_revs_diff"]), :post, [], revisions) do
+      {:ok, _sofa, %Sofa.Response{status: 200, body: diff}} when is_map(diff) -> {:ok, diff}
+      other -> security_error(other)
+    end
+  end
+
+  @doc "The older form of `revs_diff/2`: a map of document ids to the revisions the database lacks."
+  @spec missing_revs(Sofa.t(), %{optional(String.t()) => [String.t()]}) ::
+          {:ok, map()} | {:error, Sofa.Response.error() | any()}
+  def missing_revs(sofa = %Sofa{database: db}, revisions)
+      when is_binary(db) and is_map(revisions) do
+    case Sofa.raw(sofa, Sofa.Cushion.path([db, "_missing_revs"]), :post, [], revisions) do
+      {:ok, _sofa, %Sofa.Response{status: 200, body: %{"missing_revs" => missing}}} ->
+        {:ok, missing}
+
+      other ->
+        security_error(other)
+    end
+  end
+
+  # CouchDB insists on a JSON content type for these bodiless POSTs
+  @spec json_header() :: [{String.t(), String.t()}]
+  defp json_header, do: [{"content-type", "application/json"}]
+
+  @spec accepted({:ok, Sofa.t(), Sofa.Response.t()} | {:error, term()}) :: :ok | {:error, any()}
+  defp accepted({:ok, _sofa, %Sofa.Response{status: 202, body: %{"ok" => true}}}), do: :ok
+  defp accepted(other), do: security_error(other)
+
   @spec security_error({:ok, Sofa.t(), Sofa.Response.t()} | {:error, term()}) :: {:error, any()}
   defp security_error({:ok, _sofa, response = %Sofa.Response{}}),
     do: {:error, Sofa.Response.error(response)}
