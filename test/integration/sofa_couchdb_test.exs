@@ -151,6 +151,21 @@ defmodule SofaCouchDBTest do
     assert is_list(results)
   end
 
+  test "Config reads and writes a node's configuration", %{admin: admin} do
+    assert {:ok, %{"couchdb" => %{"database_dir" => _}}} = Sofa.Config.all(admin)
+    assert {:ok, %{"database_dir" => dir}} = Sofa.Config.section(admin, "couchdb")
+    assert {:ok, ^dir} = Sofa.Config.get(admin, "couchdb", "database_dir")
+    assert {:error, :not_found} = Sofa.Config.get(admin, "couchdb", "no_such_key")
+
+    # a harmless custom section, removed again
+    assert {:ok, ""} = Sofa.Config.put(admin, "sofa_ci", "marker", "set")
+    assert {:ok, "set"} = Sofa.Config.get(admin, "sofa_ci", "marker")
+    assert {:ok, "set"} = Sofa.Config.put(admin, "sofa_ci", "marker", "reset")
+    assert {:ok, "reset"} = Sofa.Config.delete(admin, "sofa_ci", "marker")
+    assert {:error, :not_found} = Sofa.Config.get(admin, "sofa_ci", "marker")
+    assert {:error, :unauthorized} = Sofa.Config.all(anonymous())
+  end
+
   test "DB.create/2 refuses an existing database", %{admin: admin, db: db} do
     assert {:error, %Sofa.Response{status: 412}} = Sofa.DB.create(admin, db)
   end

@@ -62,20 +62,21 @@ to/from Sofa, and Sofa will use the `type` key that is commonly used in
 CouchDB to detect & marshall your Struct directly to/from CouchDB's JSON
 API transparently.
 
-- [x] server:   `Sofa.*`
-- [x] raw HTTP: `Sofa.Raw.*`
-- [x] database: `Sofa.DB.*`
-- [x] document: `Sofa.Doc.*`
-- [x] user:     `Sofa.User.*`
-- [x] changes:  `Sofa.Changes.*`
-- [x] attachments: `Sofa.Attachment.*`
-- [x] views:    `Sofa.View.*`, including `_all_docs` and `_design_docs`
-- [x] mango:    `Sofa.Mango.*`
-- [x] bulk:     `Sofa.Bulk.*`
-- [x] design:   `Sofa.Design.*`
-- [x] security: `Sofa.Security.*`
-- [x] sessions: `Sofa.Session.*`
-- [x] replication: `Sofa.Replication.*`
+- [x] server:       `Sofa.*`
+- [x] raw HTTP:     `Sofa.Raw.*`
+- [x] database:     `Sofa.DB.*`
+- [x] document:     `Sofa.Doc.*`
+- [x] user:         `Sofa.User.*`
+- [x] changes:      `Sofa.Changes.*`
+- [x] attachments:  `Sofa.Attachment.*`
+- [x] views:        `Sofa.View.*`, including `_all_docs` and `_design_docs`
+- [x] mango:        `Sofa.Mango.*`
+- [x] bulk:         `Sofa.Bulk.*`
+- [x] design:       `Sofa.Design.*`
+- [x] security:     `Sofa.Security.*`
+- [x] sessions:     `Sofa.Session.*`
+- [x] replication:  `Sofa.Replication.*`
+- [x] config:       `Sofa.Config.*`
 - [ ] transparent Struct API
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
@@ -305,7 +306,8 @@ scheduler. A handle with its database set works as an endpoint:
 ### Administration
 
 The rest of the server API is a function each: `Sofa.uuids/2`,
-`Sofa.dbs_info/2`, `Sofa.membership/1` and `Sofa.db_updates/2`.
+`Sofa.dbs_info/2`, `Sofa.membership/1` and `Sofa.db_updates/2`, and the
+node configuration under `Sofa.Config`.
 
 ### Following Changes
 
