@@ -14,8 +14,7 @@ defmodule SofaCouchDBTest do
   setup_all do
     admin = Sofa.init(@couchdb_uri) |> Sofa.client() |> Sofa.IntegrationHelper.connect!()
     # the couchdb:3 image doesn't create system DBs in single node mode.
-    # The auth cache listens on _global_changes for _users updates, so make
-    # sure both exist before creating any users in the tests below.
+    # _db_updates needs _global_changes as well as _users
     ensure_db(admin, "_users")
     ensure_db(admin, "_global_changes")
     await_auth_listener(%Sofa{admin | database: "_users"})
@@ -133,6 +132,23 @@ defmodule SofaCouchDBTest do
     assert {:ok, out} = Sofa.Session.logout(session)
     assert {:ok, %{name: nil}} = Sofa.Session.info(out)
     assert {:error, %Sofa.Response{status: 401}} = Sofa.all_dbs(out)
+  end
+
+  test "server information: uuids, dbs_info, membership and db_updates", %{admin: admin, db: name} do
+    assert {:ok, [<<_::binary-size(32)>>]} = Sofa.uuids(admin)
+    assert {:ok, uuids} = Sofa.uuids(admin, 5)
+    assert length(Enum.uniq(uuids)) == 5
+
+    assert {:ok, [%{"key" => ^name, "info" => %{"db_name" => ^name, "doc_count" => _}}]} =
+             Sofa.dbs_info(admin, [name])
+
+    assert {:ok, infos} = Sofa.dbs_info(admin, startkey: name, limit: 1)
+    assert [%{"key" => ^name}] = infos
+
+    assert {:ok, %{"all_nodes" => [_ | _], "cluster_nodes" => [_ | _]}} = Sofa.membership(admin)
+
+    assert {:ok, %{"results" => results, "last_seq" => _}} = Sofa.db_updates(admin, timeout: 100)
+    assert is_list(results)
   end
 
   test "DB.create/2 refuses an existing database", %{admin: admin, db: db} do

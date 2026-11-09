@@ -248,6 +248,78 @@ defmodule Sofa do
   end
 
   @doc """
+  Fresh UUIDs from the server, as document ids. Only `count` of them, one
+  by default.
+  """
+  @spec uuids(Sofa.t(), pos_integer()) :: {:error, any()} | {:ok, [String.t()]}
+  def uuids(sofa = %Sofa{}, count \\ 1) when is_integer(count) and count > 0 do
+    case raw(sofa, "_uuids", :get, count: count) do
+      {:error, reason} -> {:error, reason}
+      {:ok, _sofa, %Sofa.Response{body: %{"uuids" => uuids}}} -> {:ok, uuids}
+    end
+  end
+
+  @doc """
+  Information about several databases in one request, as `GET /{db}`
+  gives for one: a list of `%{"key" => name, "info" => info}`. Takes a
+  list of names, or the documented query options (`startkey`, `endkey`,
+  `limit`, `skip`, `descending`) to page through all databases. Admin
+  only in the latter form.
+  """
+  @spec dbs_info(Sofa.t(), [String.t()] | keyword()) :: {:error, any()} | {:ok, [map()]}
+  def dbs_info(sofa = %Sofa{}, names_or_opts) when is_list(names_or_opts) do
+    result =
+      if Keyword.keyword?(names_or_opts) and names_or_opts != [],
+        do:
+          raw(
+            sofa,
+            "_dbs_info",
+            :get,
+            Enum.map(names_or_opts, fn {k, v} -> {k, Jason.encode!(v)} end)
+          ),
+        else: raw(sofa, "_dbs_info", :post, [], %{"keys" => names_or_opts})
+
+    case result do
+      {:error, reason} -> {:error, reason}
+      {:ok, _sofa, %Sofa.Response{body: infos}} when is_list(infos) -> {:ok, infos}
+    end
+  end
+
+  @doc """
+  The nodes of the cluster, as `%{"all_nodes" => [...], "cluster_nodes" => [...]}`.
+  """
+  @spec membership(Sofa.t()) :: {:error, any()} | {:ok, map()}
+  def membership(sofa = %Sofa{}) do
+    case raw(sofa, "_membership") do
+      {:error, reason} -> {:error, reason}
+      {:ok, _sofa, %Sofa.Response{body: body = %{"all_nodes" => _}}} -> {:ok, body}
+    end
+  end
+
+  @doc """
+  Database-level events since a sequence, via `_db_updates`: which
+  databases were created, deleted or updated, as `%{"results" => [...],
+  "last_seq" => seq}`. Options are the documented `since`, `timeout` and
+  `heartbeat`. The feed is `normal`, so the call returns at once. Admin
+  only.
+  """
+  @spec db_updates(Sofa.t(), keyword()) :: {:error, any()} | {:ok, map()}
+  def db_updates(sofa = %Sofa{}, opts \\ []) do
+    params =
+      [feed: "normal"] ++
+        for(
+          {k, v} <- Keyword.take(opts, [:since, :timeout, :heartbeat]),
+          v != nil,
+          do: {k, to_string(v)}
+        )
+
+    case raw(sofa, "_db_updates", :get, params) do
+      {:error, reason} -> {:error, reason}
+      {:ok, _sofa, %Sofa.Response{body: body = %{"results" => _}}} -> {:ok, body}
+    end
+  end
+
+  @doc """
   Minimal wrapper around native CouchDB HTTP API, allowing an escape hatch
   for raw functionality, and as the core abstraction layer for Sofa itself.
 

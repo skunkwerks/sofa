@@ -3,9 +3,13 @@ defmodule SofaTest do
 
   import Sofa.BypassHelpers
 
+  # CouchDB's update sequence for "start from the beginning"
+  @start "0"
+
   setup do
     %{bypass: bypass} = plain = start()
     admin = start(admin())
+    test = self()
 
     # the same fake CouchDB answers both the anonymous and the admin client
     for b <- [bypass, admin.bypass] do
@@ -23,6 +27,61 @@ defmodule SofaTest do
           else: json(conn, 401, "active_tasks_401.json")
       end)
     end
+
+    # server information, as documented
+    Bypass.stub(bypass, "GET", "/_uuids", fn conn ->
+      conn = Plug.Conn.fetch_query_params(conn)
+      count = String.to_integer(conn.query_params["count"] || "1")
+
+      uuids =
+        for n <- 1..count, do: "75480ca477454894678e22eec600#{String.pad_leading("#{n}", 4, "0")}"
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{"uuids" => uuids}))
+    end)
+
+    Bypass.stub(bypass, "POST", "/_dbs_info", fn conn ->
+      {conn, body} = json_body(conn)
+
+      infos =
+        for key <- body["keys"],
+            do: %{"key" => key, "info" => %{"db_name" => key, "doc_count" => 52_224}}
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(infos))
+    end)
+
+    Bypass.stub(bypass, "GET", "/_dbs_info", fn conn ->
+      conn = Plug.Conn.fetch_query_params(conn)
+      send(test, {:dbs_info, conn.query_params})
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, ~s([{"key": "animals", "info": {"db_name": "animals"}}]))
+    end)
+
+    Bypass.stub(bypass, "GET", "/_membership", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        200,
+        ~s({"all_nodes": ["node1@127.0.0.1", "node2@127.0.0.1"], "cluster_nodes": ["node1@127.0.0.1", "node2@127.0.0.1"]})
+      )
+    end)
+
+    Bypass.stub(bypass, "GET", "/_db_updates", fn conn ->
+      conn = Plug.Conn.fetch_query_params(conn)
+      send(test, {:db_updates, conn.query_params})
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        200,
+        ~s({"results": [{"db_name": "mailbox", "type": "created", "seq": "1-g1AAAAFR"}, {"db_name": "mailbox", "type": "deleted", "seq": "2-g1AAAAFR"}], "last_seq": "2-g1AAAAFR"})
+      )
+    end)
 
     # a non-JSON body, for the raw Req options
     Bypass.stub(bypass, "GET", "/plain", fn conn ->
@@ -136,6 +195,33 @@ defmodule SofaTest do
 
     assert {:error, %Sofa.Response{status: 401, body: ^expected}} =
              Sofa.connect!(plain) |> Sofa.active_tasks()
+  end
+
+  test "uuids/2, dbs_info/2, membership/1 and db_updates/2 read server information", %{
+    plain: plain
+  } do
+    sofa = Sofa.connect!(plain)
+
+    assert {:ok, [<<_::binary-size(32)>>]} = Sofa.uuids(sofa)
+    assert {:ok, uuids} = Sofa.uuids(sofa, 3)
+    assert length(uuids) == 3
+
+    assert {:ok,
+            [%{"key" => "animals", "info" => %{"doc_count" => 52_224}}, %{"key" => "plants"}]} =
+             Sofa.dbs_info(sofa, ["animals", "plants"])
+
+    assert {:ok, [%{"key" => "animals"}]} = Sofa.dbs_info(sofa, startkey: "a", limit: 1)
+    assert_receive {:dbs_info, %{"startkey" => ~s("a"), "limit" => "1"}}
+
+    assert {:ok, %{"all_nodes" => [_, _], "cluster_nodes" => [_, _]}} = Sofa.membership(sofa)
+
+    assert {:ok,
+            %{
+              "results" => [%{"db_name" => "mailbox", "type" => "created"}, _],
+              "last_seq" => "2-" <> _
+            }} = Sofa.db_updates(sofa, since: @start, timeout: 100)
+
+    assert_receive {:db_updates, %{"feed" => "normal", "since" => @start, "timeout" => "100"}}
   end
 
   test "raw/7 passes Req options through, such as raw: true and into:", %{plain: plain} do

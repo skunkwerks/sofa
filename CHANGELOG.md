@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
 
+- Add `Sofa.uuids/2`, `dbs_info/2`, `membership/1` and `db_updates/2`
 - Fix transient unexpected null state in replication
 - Fix Github CI for replication tests
 

@@ -25,7 +25,7 @@ dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:sofa, "~> 0.7"}
+    {:sofa, "~> 0.8"}
   ]
 end
 ```
@@ -301,6 +301,11 @@ scheduler. A handle with its database set works as an endpoint:
 {:ok, %{"history" => _}} = Sofa.Replication.replicate(server, db_a, db_b, create_target: true)
 {:ok, jobs} = Sofa.Replication.jobs(server)
 ```
+
+### Administration
+
+The rest of the server API is a function each: `Sofa.uuids/2`,
+`Sofa.dbs_info/2`, `Sofa.membership/1` and `Sofa.db_updates/2`.
 
 ### Following Changes
 
