@@ -10,6 +10,24 @@ defmodule SofaReplicationLiveTest do
 
   @couchdb_uri System.get_env("COUCHDB_URI", "http://admin:passwd@localhost:5984/")
 
+  setup_all do
+    admin = Sofa.init(@couchdb_uri) |> Sofa.client() |> Sofa.IntegrationHelper.connect!()
+
+    for db <- ["_users", "_replicator", "_global_changes"] do
+      case Sofa.DB.open(admin, db) do
+        {:ok, _sofa} ->
+          :ok
+
+        {:error, _} ->
+          # idempotent: creating an existing system DB is a no-op
+          {:ok, _, _} = Sofa.DB.create(admin, db)
+          :ok
+      end
+    end
+
+    :ok
+  end
+
   setup do
     admin = Sofa.init(@couchdb_uri) |> Sofa.client() |> Sofa.IntegrationHelper.connect!()
     stamp = "#{System.unique_integer([:positive])}_#{:rand.uniform(1_000_000)}"

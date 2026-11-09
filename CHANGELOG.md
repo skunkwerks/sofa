@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix Github CI for replication tests
+
 ## 0.7.0
 
 - Add `Sofa.Security` with `Sofa.DB.security/1` and `set_security/2`
