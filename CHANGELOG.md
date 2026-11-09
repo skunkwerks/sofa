@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix transient unexpected null state in replication
 - Fix Github CI for replication tests
 
 ## 0.7.0

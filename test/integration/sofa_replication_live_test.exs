@@ -102,8 +102,10 @@ defmodule SofaReplicationLiveTest do
 
     on_exit(fn -> Doc.delete(replicator, Doc.get!(replicator, doc.id)) end)
 
-    assert {:ok, %{"doc_id" => doc_id, "state" => state}} =
-             eventually(fn -> Replication.doc(admin, "_replicator", doc.id) end)
+    %{"doc_id" => doc_id, "state" => state} =
+      eventually("replicator document not scheduled", fn ->
+        Replication.doc(admin, "_replicator", doc.id)
+      end)
 
     assert doc_id == doc.id
     assert state in ["initializing", "running", "completed"]
@@ -111,12 +113,21 @@ defmodule SofaReplicationLiveTest do
     assert Enum.any?(docs, &(&1["doc_id"] == doc.id))
   end
 
-  # the scheduler picks a document up asynchronously
-  defp eventually(fun, attempts \\ 20) do
+  # the scheduler picks a document up asynchronously and, once it has, takes a
+  # moment to report a state at all (a "completing" document briefly reads
+  # {:error, :no_state}). Retry until it reports a real state, raising with the
+  # last error if it never does.
+  defp eventually(what, fun, attempts \\ 60) do
     case fun.() do
-      {:ok, result} -> {:ok, result}
-      {:error, _} when attempts > 1 -> Process.sleep(250) && eventually(fun, attempts - 1)
-      other -> other
+      {:ok, %{"state" => state} = result} when not is_nil(state) ->
+        result
+
+      {:error, _reason} when attempts > 1 ->
+        Process.sleep(500)
+        eventually(what, fun, attempts - 1)
+
+      {:error, reason} ->
+        raise Sofa.Error, "#{what}: #{inspect(reason)}"
     end
   end
 end

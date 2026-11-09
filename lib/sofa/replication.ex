@@ -14,6 +14,18 @@ defmodule Sofa.Replication do
   `filter`, `selector`, `winning_revs_only`, `source_proxy`,
   `target_proxy`, `create_target_params`.
 
+  ### Scheduler documents and transient states
+
+  The `_scheduler/docs/{db}/{docid}` endpoint lags replication itself.
+  When a job is being created or finishing, CouchDB briefly answers 200
+  with a `null` `"state"`.
+
+  See CouchDB https://github.com/apache/couchdb/issues/5008 for details.
+  `doc/3` reports that window as `{:error, :no_state}` instead of a
+  stateless document, so poll it until you get a real `"state"`. A
+  document the scheduler has not seen will return a valid 404, reported as
+  `{:error, :not_found}`.
+
   ## Examples
 
       {:ok, %{"ok" => true, "history" => [_ | _]}} = Sofa.Replication.replicate(server, db_a, db_b, create_target: true)
@@ -107,12 +119,27 @@ defmodule Sofa.Replication do
     end
   end
 
-  @doc "The scheduler's state for one replication document."
+  @doc """
+  The scheduler's state for one replication document. While CouchDB is
+  turning a replication document into or out of a job there is a brief
+  window where the endpoint answers 200 with a `null` `"state"`. Those
+  replies come back as `{:error, :no_state}` so callers can tell them apart
+  from a document the scheduler has not seen yet and keep retrying.
+  """
   @spec doc(Sofa.t(), String.t(), String.t()) :: {:ok, map()} | {:error, error()}
   def doc(sofa = %Sofa{}, replicator_db, id) when is_binary(replicator_db) and is_binary(id) do
     case Sofa.raw(sofa, Cushion.path(["_scheduler", "docs", replicator_db, id]), :get) do
-      {:ok, _sofa, %Response{status: 200, body: doc = %{"doc_id" => _}}} -> {:ok, doc}
-      other -> error(other)
+      {:ok, _sofa, %Response{status: 200, body: doc = %{"doc_id" => _, "state" => state}}}
+      when not is_nil(state) ->
+        {:ok, doc}
+
+      # a null/missing "state" is the scheduler's brief "completing" window.
+      # It is not a usable result, so report it as not ready yet.
+      {:ok, _sofa, %Response{status: 200, body: %{"doc_id" => _}}} ->
+        {:error, :no_state}
+
+      other ->
+        error(other)
     end
   end
 

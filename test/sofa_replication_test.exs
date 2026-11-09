@@ -5,6 +5,7 @@ defmodule SofaReplicationTest do
 
   import Plug.Conn, only: [put_resp_content_type: 2, resp: 3, fetch_query_params: 1]
   import Sofa.BypassHelpers, only: [start: 1, admin: 0, json: 3, json_body: 1]
+  import Sofa.Design, only: [sigil_JS: 2]
 
   alias Sofa.Replication
 
@@ -93,6 +94,26 @@ defmodule SofaReplicationTest do
       &json(&1, 404, "get_doc_404.json")
     )
 
+    Bypass.stub(bypass, "GET", "/_scheduler/docs/_replicator/stateless", fn conn ->
+      conn
+      |> put_resp_content_type("application/json")
+      |> resp(200, ~JS"""
+      {
+        "database": "_replicator",
+        "doc_id": "stateless",
+        "id": null,
+        "state": null,
+        "error_count": 0,
+        "info": null,
+        "node": "node2@127.0.0.1",
+        "source": "http://myserver.com/foo",
+        "target": "http://adm:*****@localhost:15984/stateless/",
+        "start_time": "1999-01-01T13:37:00Z",
+        "last_updated": "1999-01-01T13:37:00Z"
+      }
+      """)
+    end)
+
     %{server: Sofa.connect!(sofa)}
   end
 
@@ -170,6 +191,10 @@ defmodule SofaReplicationTest do
     assert {:ok, %{"doc_id" => "cdyno-0000001-0000002", "state" => "running"}} =
              Replication.doc(server, "_replicator", "cdyno-0000001-0000002")
 
+    # a document the scheduler has not seen yet
     assert {:error, :not_found} = Replication.doc(server, "_replicator", "nothing")
+
+    # a document caught in the brief "completing" window, state still null
+    assert {:error, :no_state} = Replication.doc(server, "_replicator", "stateless")
   end
 end
