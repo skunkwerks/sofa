@@ -88,6 +88,27 @@ defmodule Sofa.Changes do
   A response with a status other than 200, or a failed connection, is
   reported to `c:handle_error/2` as one of `t:error/0`, after closing the
   connection. The reply decides whether and when to reconnect.
+
+  ## Status
+
+  The follower outlives the connection, so monitoring its pid says little
+  about CouchDB. The optional `c:handle_status/2` hears instead when the
+  feed comes up and when it goes down, once per change of state:
+
+  - `:up` when the first chunk of a 200 response arrives. A continuous
+    feed sends a heartbeat on an idle database, so that `:up` comes at
+    most one `heartbeat` interval after the request.
+  - `{:down, reason}` when that stream is lost, with one of
+    `t:down_reason/0`. A failed first request also reports `{:down, _}`,
+    so the first status may be either. Further failures while down are
+    not reported again.
+
+  A response that ends normally reports `{:down, :ended}`. The reconnect
+  then reports `:up` again. A continuous feed does this once per
+  `timeout`. A longpoll feed does it once per batch.
+
+  `status/2` asks the follower for the same state, along with the
+  monotonic time of the last chunk received, a row or a heartbeat.
   """
 
   use GenServer
@@ -115,6 +136,28 @@ defmodule Sofa.Changes do
           | :internal_server_error
           | {:status_code, pos_integer()}
           | {:conn_failed, term()}
+
+  @typedoc """
+  Why the stream was lost, as given to `c:handle_status/2`: a failure as
+  in `t:error/0`, the response ending, no heartbeat for twice its
+  interval, or the connection process exiting
+  """
+  @type down_reason :: error() | :ended | :no_heartbeat | {:exit, term()}
+
+  @typedoc "The state of the feed, as given to `c:handle_status/2`"
+  @type status :: :up | {:down, down_reason()}
+
+  @typedoc """
+  What `status/2` returns. `status` is nil until the first request is
+  answered or fails. `last_data` is the `System.monotonic_time/1` in
+  milliseconds of the last chunk received, a row or a heartbeat, or nil
+  """
+  @type info :: %{
+          connected: boolean(),
+          status: status() | nil,
+          last_data: integer() | nil,
+          since: Query.since()
+        }
 
   @type on_start :: {:ok, pid()} | :ignore | {:error, {:already_started, pid()} | term()}
 
@@ -170,6 +213,18 @@ defmodule Sofa.Changes do
               | {:stop, reason :: term(), new_state}
             when new_state: term()
 
+  @doc """
+  Called when the feed comes up or goes down, see the Status section above.
+
+  `{:ok, state}` goes on as before. `{:stop, reason, state}` stops the
+  follower. The default does nothing. The callback is optional. A module
+  that does not `use Sofa.Changes` may leave it out.
+  """
+  @callback handle_status(status(), state :: term()) ::
+              {:ok, new_state}
+              | {:stop, reason :: term(), new_state}
+            when new_state: term()
+
   @callback handle_call(request :: term(), from(), state :: term()) ::
               {:reply, reply, new_state}
               | {:reply, reply, new_state, timeout() | :hibernate}
@@ -198,6 +253,8 @@ defmodule Sofa.Changes do
               {:ok, new_state :: term()} | {:error, reason :: term()}
             when old_vsn: term() | {:down, term()}
 
+  @optional_callbacks handle_status: 2
+
   @doc false
   defmacro __using__(_opts) do
     quote location: :keep do
@@ -211,6 +268,9 @@ defmodule Sofa.Changes do
 
       @doc false
       def handle_error(_error, state), do: {:retry, 60_000, state}
+
+      @doc false
+      def handle_status(_status, state), do: {:ok, state}
 
       @doc false
       def handle_call(_request, _from, state), do: {:noreply, state}
@@ -230,6 +290,7 @@ defmodule Sofa.Changes do
       defoverridable init: 1,
                      handle_change: 2,
                      handle_error: 2,
+                     handle_status: 2,
                      handle_call: 3,
                      handle_cast: 2,
                      handle_info: 2,
@@ -263,7 +324,11 @@ defmodule Sofa.Changes do
     # a pending reconnect timer, or :infinity while waiting for retry_now/1
     retry: nil,
     # the heartbeat watchdog timer for the current request
-    watchdog: nil
+    watchdog: nil,
+    # :up or {:down, reason} as last told to handle_status/2, nil before
+    status: nil,
+    # the monotonic time in milliseconds of the last chunk received
+    last_data: nil
   ]
 
   @typedoc "The follower's internal state, visible via `:sys.get_state/1`"
@@ -281,7 +346,9 @@ defmodule Sofa.Changes do
           lkg: Query.since(),
           fallback: Query.since(),
           retry: reference() | :infinity | nil,
-          watchdog: reference() | nil
+          watchdog: reference() | nil,
+          status: status() | nil,
+          last_data: integer() | nil
         }
 
   @jitter 500
@@ -332,6 +399,15 @@ defmodule Sofa.Changes do
     :ok
   end
 
+  @doc """
+  Returns the state of the follower's feed, see `t:info/0`.
+
+  This is a call, so it waits while the follower is busy in a callback.
+  """
+  @spec status(follower(), timeout()) :: info()
+  def status(follower, timeout \\ 5000),
+    do: GenServer.call(follower, {:"$sofa_changes", :status}, timeout)
+
   ## GenServer callbacks
 
   @impl GenServer
@@ -380,6 +456,17 @@ defmodule Sofa.Changes do
   end
 
   @impl GenServer
+  def handle_call({:"$sofa_changes", :status}, _from, state = %__MODULE__{}) do
+    info = %{
+      connected: state.status == :up,
+      status: state.status,
+      last_data: state.last_data,
+      since: state.query.since
+    }
+
+    {:reply, info, state}
+  end
+
   def handle_call(request, from, state = %__MODULE__{module: module, mstate: mstate}) do
     case module.handle_call(request, from, mstate) do
       {:reply, reply, mstate} -> {:reply, reply, %{state | mstate: mstate}}
@@ -401,7 +488,8 @@ defmodule Sofa.Changes do
   @impl GenServer
   def handle_info({ref, :data, chunk}, state = %__MODULE__{ref: ref, buffer: buffer}) do
     {events, buffer} = Parser.feed(buffer, chunk)
-    deliver(events, %{(state |> connected() |> watchdog()) | buffer: buffer})
+    state = %{(state |> connected() |> watchdog()) | buffer: buffer, last_data: now()}
+    with {:ok, state} <- up(state), do: deliver(events, state)
   end
 
   def handle_info(
@@ -414,10 +502,8 @@ defmodule Sofa.Changes do
         _batch -> Parser.batch(body)
       end
 
-    case deliver(events, %{connected(state) | buffer: ""}) do
-      {:noreply, state} -> {:noreply, ended(state)}
-      {:noreply, state, timeout} -> {:noreply, ended(state), timeout}
-      stop -> stop
+    with {:ok, state} <- up(%{connected(state) | buffer: "", last_data: now()}) do
+      events |> deliver(state) |> ended()
     end
   end
 
@@ -435,17 +521,18 @@ defmodule Sofa.Changes do
         )
 
         state = %{state | query: Query.since(query, lkg), lkg: nil, fallback: lkg}
-        {:noreply, state |> stop_stream() |> schedule(0)}
+        lost(state, :bad_request, &{:noreply, schedule(&1, 0)})
 
       _ ->
         Logger.error("#{inspect(state.module)}: _changes request rejected: #{inspect(body)}")
-        {:stop, :bad_request, stop_stream(state)}
+        lost(state, :bad_request, &{:stop, :bad_request, &1})
     end
   end
 
   def handle_info({ref, :done, %Req.Response{status: status}}, state = %__MODULE__{ref: ref}) do
     Logger.warning("#{inspect(state.module)}: _changes request failed with HTTP #{status}")
-    state |> stop_stream() |> handle_error(reason(status))
+    error = reason(status)
+    lost(state, error, &handle_error(&1, error))
   end
 
   # a connection that timed out or dropped mid-stream is simply reopened
@@ -455,7 +542,7 @@ defmodule Sofa.Changes do
       )
       when reason in [:timeout, :closed] do
     Logger.warning("#{inspect(state.module)}: _changes connection #{reason}, will reconnect")
-    {:noreply, state |> stop_stream() |> schedule(0)}
+    lost(state, {:conn_failed, reason}, &{:noreply, schedule(&1, 0)})
   end
 
   def handle_info({ref, :error, exception}, state = %__MODULE__{ref: ref}) do
@@ -463,12 +550,13 @@ defmodule Sofa.Changes do
       "#{inspect(state.module)}: _changes request failed: #{Exception.message(exception)}"
     )
 
-    state |> stop_stream() |> handle_error({:conn_failed, reason(exception)})
+    error = {:conn_failed, reason(exception)}
+    lost(state, error, &handle_error(&1, error))
   end
 
   def handle_info({:"$sofa_changes", :watchdog, ref}, state = %__MODULE__{ref: ref}) do
     Logger.warning("#{inspect(state.module)}: no heartbeat from _changes, will reconnect")
-    {:noreply, state |> stop_stream() |> schedule(0)}
+    lost(state, :no_heartbeat, &{:noreply, schedule(&1, 0)})
   end
 
   # workers exit normally after their :done or :error message, or killed by
@@ -482,7 +570,7 @@ defmodule Sofa.Changes do
         "#{inspect(state.module)}: connection process died, will reconnect: #{inspect(reason)}"
       )
 
-      {:noreply, state |> stop_stream() |> schedule(0)}
+      lost(state, {:exit, reason}, &{:noreply, schedule(&1, 0)})
     else
       {:noreply, state}
     end
@@ -540,17 +628,67 @@ defmodule Sofa.Changes do
     |> watchdog()
   end
 
-  # a normal feed is a one-off batch. The others reconnect from the last seq
-  @spec ended(t()) :: t()
+  # a normal feed is a one-off batch. The others reconnect from the last seq.
+  # Takes what delivering the last rows returned, keeping any timeout
+  @spec ended({:noreply, t()} | {:noreply, t(), timeout()} | {:stop, term(), t()} | t()) ::
+          {:noreply, t()} | {:noreply, t(), timeout()} | {:stop, term(), t()}
+  defp ended({:noreply, state}), do: ended(state)
+
+  defp ended({:noreply, state, timeout}) do
+    with {:noreply, state} <- ended(state), do: {:noreply, state, timeout}
+  end
+
+  defp ended(stop = {:stop, _reason, _state}), do: stop
+
   defp ended(state = %__MODULE__{query: %Query{feed: :normal}}) do
     Logger.debug("#{inspect(state.module)}: normal feed delivered, not reconnecting")
-    stop_stream(state)
+    lost(state, :ended, &{:noreply, &1})
   end
 
   defp ended(state = %__MODULE__{}) do
     Logger.debug("#{inspect(state.module)}: response ended, will reconnect")
-    state |> stop_stream() |> schedule(0)
+    lost(state, :ended, &{:noreply, schedule(&1, 0)})
   end
+
+  # closes the stream and reports it down. `next` then decides what to do,
+  # unless handle_status/2 asked to stop
+  @spec lost(t(), down_reason(), (t() -> result)) :: result | {:stop, term(), t()}
+        when result: {:noreply, t()} | {:stop, term(), t()}
+  defp lost(state = %__MODULE__{}, reason, next) do
+    case state |> stop_stream() |> down(reason) do
+      {:ok, state} -> next.(state)
+      stop -> stop
+    end
+  end
+
+  # handle_status/2 hears of a change of state only. A second failure while
+  # down only updates the reason that status/2 shows
+  @spec up(t()) :: {:ok, t()} | {:stop, term(), t()}
+  defp up(state = %__MODULE__{status: :up}), do: {:ok, state}
+  defp up(state = %__MODULE__{}), do: report(state, :up)
+
+  @spec down(t(), down_reason()) :: {:ok, t()} | {:stop, term(), t()}
+  defp down(state = %__MODULE__{status: {:down, _}}, reason),
+    do: {:ok, %{state | status: {:down, reason}}}
+
+  defp down(state = %__MODULE__{}, reason), do: report(state, {:down, reason})
+
+  @spec report(t(), status()) :: {:ok, t()} | {:stop, term(), t()}
+  defp report(state = %__MODULE__{module: module, mstate: mstate}, status) do
+    state = %{state | status: status}
+
+    if function_exported?(module, :handle_status, 2) do
+      case module.handle_status(status, mstate) do
+        {:ok, mstate} -> {:ok, %{state | mstate: mstate}}
+        {:stop, reason, mstate} -> {:stop, reason, %{state | mstate: mstate}}
+      end
+    else
+      {:ok, state}
+    end
+  end
+
+  @spec now() :: integer()
+  defp now, do: System.monotonic_time(:millisecond)
 
   # (re)arms the watchdog: with a heartbeat, silence for twice its interval
   # means the connection is dead. Without one, the server's timeout applies

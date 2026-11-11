@@ -28,7 +28,7 @@ defmodule SofaChangesTest do
       assert Changes in List.wrap(DefaultFollower.__info__(:attributes)[:behaviour])
     end
 
-    test "defines the seven callbacks plus code_change" do
+    test "defines the eight callbacks plus code_change" do
       callbacks = Changes.behaviour_info(:callbacks) |> Enum.sort()
 
       assert callbacks == [
@@ -38,6 +38,7 @@ defmodule SofaChangesTest do
                handle_change: 2,
                handle_error: 2,
                handle_info: 2,
+               handle_status: 2,
                init: 1,
                terminate: 2
              ]
@@ -59,6 +60,8 @@ defmodule SofaChangesTest do
       assert DefaultFollower.handle_cast(:request, :state) == {:noreply, :state}
       assert DefaultFollower.handle_info(:message, :state) == {:noreply, :state}
       assert DefaultFollower.handle_error(:oops, :state) == {:retry, 60_000, :state}
+      assert DefaultFollower.handle_status(:up, :state) == {:ok, :state}
+      assert DefaultFollower.handle_status({:down, :ended}, :state) == {:ok, :state}
       assert DefaultFollower.terminate(:normal, :state) == :ok
       assert DefaultFollower.code_change(1, :state, :extra) == {:ok, :state}
     end

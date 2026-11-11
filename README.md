@@ -359,6 +359,12 @@ A ready-to-run version of this example is in
 [`examples/follower.exs`](examples/follower.exs). Run it with
 `COUCHDB_URI=http://admin:passwd@localhost:5984/ elixir examples/follower.exs`.
 
+A follower lives on while it retries, so its pid says little about
+CouchDB. Implement the optional `handle_status/2` to hear `:up` when the
+feed starts streaming, and `{:down, reason}` when it is lost.
+`Sofa.Changes.status/2` gives the same state, with the time of the last
+row or heartbeat.
+
 ### Raw Mode
 
 Sometimes you just want to re-upholster the Couch yourself. That's fine,

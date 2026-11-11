@@ -19,11 +19,14 @@ defmodule Sofa.TestFollower do
       `{:retry, ms | :infinity}` or `{:stop, reason}`, default `{:retry, 10}`
     * `:stop_on` - a document id. `handle_change/2` returns
       `{:stop, :stopped_by_change, state}` when it sees it
+    * `:stop_on_status` - `:up` or `:down`. `handle_status/2` returns
+      `{:stop, :stopped_by_status, state}` when it is told that
 
   Messages sent to `pid`:
 
       {:change, change, count}   handle_change/2, count of changes so far
       {:error, reason}           handle_error/2
+      {:status, status}          handle_status/2
       {:call, request}           handle_call/3 (unknown requests)
       {:cast, request}           handle_cast/2
       {:info, message}           handle_info/2
@@ -71,6 +74,17 @@ defmodule Sofa.TestFollower do
       :retry -> {:retry, state}
       {:retry, wait} -> {:retry, wait, state}
       {:stop, stop_reason} -> {:stop, stop_reason, state}
+    end
+  end
+
+  @impl true
+  def handle_status(status, state = %{pid: pid}) do
+    send(pid, {:status, status})
+
+    case {status, state[:stop_on_status]} do
+      {:up, :up} -> {:stop, :stopped_by_status, state}
+      {{:down, _}, :down} -> {:stop, :stopped_by_status, state}
+      _ -> {:ok, state}
     end
   end
 
