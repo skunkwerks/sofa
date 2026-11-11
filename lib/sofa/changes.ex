@@ -213,18 +213,6 @@ defmodule Sofa.Changes do
               | {:stop, reason :: term(), new_state}
             when new_state: term()
 
-  @doc """
-  Called when the feed comes up or goes down, see the Status section above.
-
-  `{:ok, state}` goes on as before. `{:stop, reason, state}` stops the
-  follower. The default does nothing. The callback is optional. A module
-  that does not `use Sofa.Changes` may leave it out.
-  """
-  @callback handle_status(status(), state :: term()) ::
-              {:ok, new_state}
-              | {:stop, reason :: term(), new_state}
-            when new_state: term()
-
   @callback handle_call(request :: term(), from(), state :: term()) ::
               {:reply, reply, new_state}
               | {:reply, reply, new_state, timeout() | :hibernate}
@@ -252,6 +240,18 @@ defmodule Sofa.Changes do
   @callback code_change(old_vsn, state :: term(), extra :: term()) ::
               {:ok, new_state :: term()} | {:error, reason :: term()}
             when old_vsn: term() | {:down, term()}
+
+  @doc """
+  Called when the feed comes up or goes down, see the Status section above.
+
+  `{:ok, state}` goes on as before. `{:stop, reason, state}` stops the
+  follower. The default does nothing. The callback is optional. A module
+  that does not `use Sofa.Changes` may leave it out.
+  """
+  @callback handle_status(status(), state :: term()) ::
+              {:ok, new_state}
+              | {:stop, reason :: term(), new_state}
+            when new_state: term()
 
   @optional_callbacks handle_status: 2
 

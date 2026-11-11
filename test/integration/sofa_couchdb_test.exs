@@ -68,6 +68,30 @@ defmodule SofaCouchDBTest do
     end
   end
 
+  test "Sofa.Health sees a 200 from /_up", %{admin: admin} do
+    name = :"sofa_ci_health_#{System.unique_integer([:positive])}"
+    _pid = start_supervised!({Sofa.Health, sofa: admin, name: name})
+
+    assert await_healthy(name)
+    assert %{healthy: true, error: nil, age: age} = Sofa.Health.status(name)
+    assert is_integer(age)
+  end
+
+  # the first probe starts at once, give it a few seconds to answer
+  defp await_healthy(name, tries \\ 100) do
+    cond do
+      Sofa.healthy?(name) ->
+        true
+
+      tries == 0 ->
+        false
+
+      true ->
+        Process.sleep(30)
+        await_healthy(name, tries - 1)
+    end
+  end
+
   test "raw/6 returns a transport error for an unreachable server" do
     sofa = Sofa.init("http://localhost:1/") |> Sofa.client()
     assert {:error, %Req.TransportError{reason: :econnrefused}} = Sofa.raw(sofa, "/")

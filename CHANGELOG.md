@@ -2,7 +2,10 @@
 
 ## 0.8.0
 
-- Add `Sofa.Changes.handle_status/2`, an optional callback that hears `:up`
+- Add `Sofa.Health`, which asks CouchDB's `/_up` every 15 seconds and
+    caches the answer in ETS
+- Add `Sofa.healthy?/2`, which reads that cache
+- Add `c:Sofa.Changes.handle_status/2`, an optional callback that hears `:up`
     when a feed starts streaming and `{:down, reason}` when it is lost
 - Add `Sofa.Changes.status/2`, with the time of the last row or heartbeat
 - Add `Sofa.DB.compact/2`, `view_cleanup/1`, `revs_limit/1`, `set_revs_limit/2`,

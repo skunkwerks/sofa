@@ -77,6 +77,7 @@ API transparently.
 - [x] sessions:     `Sofa.Session.*`
 - [x] replication:  `Sofa.Replication.*`
 - [x] config:       `Sofa.Config.*`
+- [x] health:       `Sofa.Health.*` and `Sofa.healthy?/2`
 - [ ] transparent Struct API
 - [ ] bearer token authorisation
 - [ ] runtime tracing filterable by method & URL
@@ -364,6 +365,22 @@ CouchDB. Implement the optional `handle_status/2` to hear `:up` when the
 feed starts streaming, and `{:down, reason}` when it is lost.
 `Sofa.Changes.status/2` gives the same state, with the time of the last
 row or heartbeat.
+
+### Health
+
+`Sofa.Health` asks CouchDB's `/_up` every 15 seconds and caches the answer
+in ETS. A load balancer probe can ask it as often as it likes, and never
+waits on HTTP. Start it in your own supervision tree:
+
+```elixir
+children = [{Sofa.Health, sofa: Sofa.init(url) |> Sofa.client()}]
+
+Sofa.healthy?()                   # a 200 in the last 60 seconds
+Sofa.healthy?(Sofa.Health, max_age: 30_000)
+Sofa.Health.status()              # %{healthy: true, age: 4210, error: nil, ...}
+```
+
+Give each checker a `name:` to run more than one.
 
 ### Raw Mode
 

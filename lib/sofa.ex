@@ -320,6 +320,17 @@ defmodule Sofa do
   end
 
   @doc """
+  True when the `Sofa.Health` checker called `name` saw a 200 from
+  CouchDB's `/_up` less than `max_age` milliseconds ago, 60000 by default.
+  It reads a cache and waits on nothing. See `Sofa.Health.healthy?/2`.
+
+      Sofa.healthy?()
+      Sofa.healthy?(MyApp.Couch, max_age: 30_000)
+  """
+  @spec healthy?(Sofa.Health.name(), keyword()) :: boolean()
+  defdelegate healthy?(name \\ Sofa.Health, opts \\ []), to: Sofa.Health
+
+  @doc """
   Minimal wrapper around native CouchDB HTTP API, allowing an escape hatch
   for raw functionality, and as the core abstraction layer for Sofa itself.
 
