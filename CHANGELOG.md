@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1
+
+- Fix slow connects to an IPv4 address such as `127.0.0.1`, which tried
+    IPv6 first and so looked the address up over DNS
+
 ## 0.8.0
 
 - Add `Sofa.Health`, which asks CouchDB's `/_up` every 15 seconds and

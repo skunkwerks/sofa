@@ -110,6 +110,7 @@ defmodule Sofa do
   Any `Req.new/1` options may be passed to override the defaults, for example
   `receive_timeout: 5_000`, `plug: MyPlug` for `Req.Test`, or `inet6: false`
   to disable the default IPv6-first, IPv4-fallback connection behaviour.
+  An IPv4 address such as `127.0.0.1` connects over IPv4 only.
 
   Retries are disabled, as CouchDB responses are expected to be fast and
   callers typically want to see errors immediately.
@@ -134,13 +135,18 @@ defmodule Sofa do
       receive_timeout: @default_timeout,
       retry: false,
       # try IPv6 first, falling back to IPv4. Req merges this into the Mint
-      # transport options, so `connect_options` stays free for callers
-      inet6: true
+      # transport options, so `connect_options` stays free for callers.
+      # Not for an IPv4 literal, which OTP would first look up over DNS
+      inet6: not ipv4_literal?(uri.host)
     ]
 
     client = Req.new(Keyword.merge(defaults ++ auth, opts))
     %Sofa{couch | client: client, timeout: @default_timeout}
   end
+
+  @spec ipv4_literal?(String.t()) :: boolean()
+  defp ipv4_literal?(host),
+    do: match?({:ok, _}, :inet.parse_ipv4strict_address(String.to_charlist(host)))
 
   @doc """
   Returns user & password credentials extracted from a typical %URI{} userinfo

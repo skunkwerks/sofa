@@ -123,7 +123,19 @@ defmodule SofaTest do
   test "client/2 omits basic auth when no credentials are supplied", %{plain: plain} do
     refute Map.has_key?(plain.client.options, :auth)
     assert plain.client.options[:retry] == false
-    assert plain.client.options[:inet6] == true
+  end
+
+  # with inet6, OTP looks an IPv4 literal up as a hostname over DNS before
+  # falling back to IPv4, which adds a resolver round trip to every connect
+  test "client/2 connects to an IPv4 literal over IPv4 only" do
+    v4 = Sofa.init("http://127.0.0.1:5984/") |> Sofa.client()
+    assert v4.client.options[:inet6] == false
+
+    v6 = Sofa.init("http://[::1]:5984/") |> Sofa.client()
+    assert v6.client.options[:inet6] == true
+
+    forced = Sofa.init("http://127.0.0.1:5984/") |> Sofa.client(inet6: true)
+    assert forced.client.options[:inet6] == true
   end
 
   test "client/2 includes basic auth when credentials are supplied", %{admin: admin} do
